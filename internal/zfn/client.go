@@ -123,33 +123,66 @@ func (c *Client) kaptchaURL() string { return c.resolveURL("/kaptcha") }
 
 // ---------- RSA encryption ----------
 
-// encryptPassword encrypts |password| with RSA PKCS1v15 using the hex-encoded
-// modulus and exponent returned by the 正方 public-key endpoint.
-func encryptPassword(password, modHex, expHex string) (string, error) {
-	if modHex == "" || expHex == "" {
+// encryptPassword encrypts |password| with RSA PKCS1v15 using the modulus
+// and exponent returned by the 正方 public-key endpoint.
+//
+// The endpoint can return the values as either a hex string or a
+// base64-encoded big-endian byte array (e.g. JSEncrypt-style "AQAB" for 65537).
+// This function tries hex first, then falls back to base64.
+func encryptPassword(password, modStr, expStr string) (string, error) {
+	if modStr == "" || expStr == "" {
 		return "", fmt.Errorf("missing public key (modulus/exponent empty)")
 	}
-	n := new(big.Int)
-	if _, ok := n.SetString(modHex, 16); !ok {
-		// Most likely the school's WAF returned a non-RSA response
-		// (e.g. captcha challenge) on the public-key endpoint.
-		// Include a sample of the actual value to aid diagnosis.
-		sample := modHex
-		if len(sample) > 80 {
-			sample = sample[:40] + "..." + sample[len(sample)-40:]
-		}
-		return "", fmt.Errorf("invalid modulus hex (len=%d, sample=%q) — server may be returning WAF/captcha response; try Cookie login via COOKIES env", len(modHex), sample)
-	}
-	e, err := strconv.ParseInt(expHex, 16, 32)
+	n, err := parseBigInt(modStr)
 	if err != nil {
-		return "", fmt.Errorf("bad exponent %q: %w", expHex, err)
+		return "", fmt.Errorf("invalid modulus (not hex or base64): %w", err)
 	}
-	pub := &rsa.PublicKey{N: n, E: int(e)}
+	e, err := parseExponent(expStr)
+	if err != nil {
+		return "", fmt.Errorf("invalid exponent: %w", err)
+	}
+	pub := &rsa.PublicKey{N: n, E: e}
 	enc, err := rsa.EncryptPKCS1v15(rand.Reader, pub, []byte(password))
 	if err != nil {
 		return "", fmt.Errorf("rsa encrypt: %w", err)
 	}
 	return base64.StdEncoding.EncodeToString(enc), nil
+}
+
+// parseBigInt parses s as either a hex string or a base64-encoded
+// big-endian byte array.
+func parseBigInt(s string) (*big.Int, error) {
+	if x, ok := new(big.Int).SetString(s, 16); ok {
+		return x, nil
+	}
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("base64 decode: %w", err)
+	}
+	if len(b) == 0 {
+		return nil, fmt.Errorf("empty modulus")
+	}
+	return new(big.Int).SetBytes(b), nil
+}
+
+// parseExponent parses the RSA public exponent. Some servers return it as
+// a hex string ("10001"), others as base64 ("AQAB").
+func parseExponent(s string) (int, error) {
+	if e, err := strconv.ParseInt(s, 16, 32); err == nil {
+		return int(e), nil
+	}
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return 0, fmt.Errorf("not hex or base64: %w", err)
+	}
+	if len(b) == 0 {
+		return 0, fmt.Errorf("empty exponent")
+	}
+	e := 0
+	for _, by := range b {
+		e = e<<8 | int(by)
+	}
+	return e, nil
 }
 
 // Backoff sleeps with exponential delay: 1s, 2s, 4s, 8s, ... (capped at maxSec).

@@ -131,11 +131,18 @@ func encryptPassword(password, modHex, expHex string) (string, error) {
 	}
 	n := new(big.Int)
 	if _, ok := n.SetString(modHex, 16); !ok {
-		return "", fmt.Errorf("invalid modulus hex")
+		// Most likely the school's WAF returned a non-RSA response
+		// (e.g. captcha challenge) on the public-key endpoint.
+		// Include a sample of the actual value to aid diagnosis.
+		sample := modHex
+		if len(sample) > 80 {
+			sample = sample[:40] + "..." + sample[len(sample)-40:]
+		}
+		return "", fmt.Errorf("invalid modulus hex (len=%d, sample=%q) — server may be returning WAF/captcha response; try Cookie login via COOKIES env", len(modHex), sample)
 	}
 	e, err := strconv.ParseInt(expHex, 16, 32)
 	if err != nil {
-		return "", fmt.Errorf("bad exponent: %w", err)
+		return "", fmt.Errorf("bad exponent %q: %w", expHex, err)
 	}
 	pub := &rsa.PublicKey{N: n, E: int(e)}
 	enc, err := rsa.EncryptPKCS1v15(rand.Reader, pub, []byte(password))
@@ -264,7 +271,17 @@ func (c *Client) Login(username, password string) *LoginResult {
 		Exponent string `json:"exponent"`
 	}
 	if err := json.NewDecoder(pkResp.Body).Decode(&pk); err != nil {
-		return &LoginResult{Code: 2333, Msg: "解析公钥失败"}
+		// Re-fetch the public key to capture the body for diagnosis.
+		var body []byte
+		if r2, _ := c.get("/xtgl/login_getPublicKey.html"); r2 != nil {
+			body, _ = io.ReadAll(r2.Body)
+			r2.Body.Close()
+		}
+		sample := string(body)
+		if len(sample) > 200 {
+			sample = sample[:200] + "..."
+		}
+		return &LoginResult{Code: 2333, Msg: fmt.Sprintf("公钥响应不是合法 JSON: %v; body=%q", err, sample)}
 	}
 
 	// 3) Captcha required?

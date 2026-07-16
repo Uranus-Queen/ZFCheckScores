@@ -1,1 +1,25 @@
+# ─── Python (leftover from migration) ───
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# ─── Go build artifacts ───
+zfcheckscores
+zfcheckscores.exe
+*.exe
+
+# ─── Runtime state (grade hashes, personal info, ad lists) ───
+data/
+
+# ─── IDE / Editor ───
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ─── OS ───
+.DS_Store
+Thumbs.db
+desktop.ini

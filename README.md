@@ -4,109 +4,95 @@
 
 ## 简介
 
-**使用本项目前：**
+自动检测正方教务系统成绩更新，通过微信实时推送通知。
 
-早晨睡醒看一遍教务系统、上厕所看一遍教务系统、刷牙看一遍教务系统、洗脸看一遍教务系统、吃早餐看一遍教务系统、吃午饭看一遍教务系统、睡午觉前看一遍教务系统、午觉醒来看一遍教务系统、出门前看一遍教务系统、吃晚饭看一遍教务系统、洗澡看一遍教务系统、睡觉之前看一遍教务系统
-
-**使用本项目后：**
-
-成绩更新后**自动发通知到微信** 以节省您宝贵的时间
+- **Go 实现**，编译为单二进制，CI 中无需安装依赖
+- 每 30 分钟检测一次，仅在本学期成绩变化时推送
+- 支持 **Cookie 登录**（复用浏览器会话，绕过验证码）
 
 ## 测试环境
 
-正方教务管理系统 版本 V8.0、V9.0
-
-如果你的教务系统页面与下图所示的页面**完全一致**或**几乎一致**，则代表你可以使用本项目。
+正方教务管理系统 V8.0、V9.0。
 
 <img src="https://raw.githubusercontent.com/NianBroken/ZFCheckScores/main/img/9.png" style="zoom:60%;" />
 
-## 目前支持的功能
+## 功能
 
-1. 主要功能
-
-   1. 每隔 30 分钟自动检测一次成绩是否有更新，若有更新，将通过微信推送及时通知用户。
-
-2. 相较于教务系统增加了哪些功能？
-
-   1. 显示成绩提交时间，即成绩何时被录入教务系统。
-   2. 显示成绩提交人姓名，即成绩由谁录入进教务系统。
-   3. 成绩信息按时间降序排序，确保最新的成绩始终在最上方，提升用户查阅效率。
-   4. 计算 `GPA`
-   5. 计算百分制 `GPA`
-   6. 对于没有分数仅有级别的成绩，例如”及格、良好、优秀“，可以强制显示数字分数。
-   7. 显示未公布成绩的课程，即已选课但尚未出成绩的课程。
+- 成绩按提交时间排序，标注提交人
+- 自动计算 GPA 和百分制 GPA
+- 显示未公布成绩的课程
+- 推送页面美观简洁，手机浏览友好
+- 支持 Cookie 登录，绕过教务系统验证码
 
 ## 使用方法
 
-### 1. [Fork](https://github.com/NianBroken/ZFCheckScores/fork "Fork") 本仓库
+### 1. Fork 仓库
 
 `Fork` → `Create fork`
 
-### 2. 开启 工作流读写权限
+### 2. 开启工作流权限
 
-`Settings` → `Actions` → `General` → `Workflow permissions` →`Read and write permissions` →`Save`
+`Settings` → `Actions` → `General` → `Workflow permissions` → `Read and write permissions` → `Save`
 
 ### 3. 添加 Secrets
 
-`Settings` → `Secrets and variables` → `Actions` → `Secrets` → `Repository secrets` → `New repository secret` → `Add secret`
+`Settings` → `Secrets and variables` → `Actions` → `Secrets` → `Repository secrets`
 
-> Name = Name，Secret = 例子
+| Name     | 例子                                | 说明                              |
+| -------- | ----------------------------------- | --------------------------------- |
+| URL      | https://jwgl.njtech.edu.cn/         | 教务系统地址（根路径，勿加 jwglxt）|
+| USERNAME | 2023210333027                       | 学号                              |
+| PASSWORD | Y3xhaCkb5PZ4                        | 密码                              |
+| TOKEN    | J65KWMBfyDh3YPLpcvm8                | [Showdoc push token]              |
+| COOKIES  | `{"JSESSIONID":"...","route":"..."}` | **可选**。浏览器 Cookie，跳过验证码 |
 
-> 程序会自动填充 `URL` 尾部的 `xtgl/login_slogin.html`，因此你无需重复添加
+### Cookie 登录
 
-> 对于部分教务系统，可能需要在 `URL` 中添加 `jwglxt` 路径，如：`https://www.klaio.top/jwglxt/`
+若账号密码受验证码限制，可使用已登录浏览器的 Cookie 直接复用会话：
 
-| Name     | 例子                   | 说明                                                                      |
-| -------- | ---------------------- | ------------------------------------------------------------------------- |
-| URL      | https://www.klaio.top/ | 教务系统地址                                                              |
-| USERNAME | 2971802058             | 教务系统用户名                                                            |
-| PASSWORD | Y3xhaCkb5PZ4           | 教务系统密码                                                              |
-| TOKEN    | J65KWMBfyDh3YPLpcvm8   | [Showdoc 的 token](https://push.showdoc.com.cn/#/push "Showdoc 的 token") |
+1. 浏览器登录教务系统。
+2. `F12` → `Application` → `Cookies`，复制 `JSESSIONID`（及 `route`）。
+3. 填入仓库 Secrets 的 `COOKIES`，格式：`{"JSESSIONID":"xxx","route":"yyy"}` 或 `JSESSIONID=xxx; route=yyy`。
+4. 设置 `COOKIES` 后无需再填 `USERNAME` / `PASSWORD`。
 
-### 4. 开启 Actions
+### 4. 启用 Actions
 
-`Actions` → `I understand my workflows, go ahead and enable them` → `CheckScores` → `Enable workflow`
+`Actions` → `CheckScores` → `Enable workflow`
 
-### 5. 运行 程序
+### 5. 运行
 
-`Actions` → `CheckScores` → `Run workflow`
-
-_若你的程序正常运行且未报错，那么在此之后，程序将会每隔 30 分钟自动检测一次成绩是否有更新_
-
-_若你看不懂上述使用方法，你可以查看[详细使用方法](https://nianbroken.github.io/ZFCheckScores/ "详细使用方法")_
+`Actions` → `CheckScores` → `Run workflow`，之后每 30 分钟自动运行。
 
 ## 程序逻辑
 
-1. 清空文件 B 中的内容
-2. 将文件 A 中的内容写入到文件 B
-3. 清空文件 A 中的内容
-4. 将获取到的成绩进行 MD5 加密
-5. 将加密后的成绩写入到文件 A
-6. 比对文件 A 与文件 B 的内容是否一致
-7. 若一致则表示成绩未更新，若不一致则表示成绩已更新
+1. 登录教务系统（Cookie 优先 → 账号密码 RSA 加密）
+2. 判定当前学期（已选课程优先 → 日历兜底）
+3. 抓取本学期成绩，MD5 哈希写入 `data/grade.txt`
+4. 与上一次快照 `data/old_grade.txt` 比对
+5. 成绩变化或首次运行时，通过 Showdoc 推送微信通知
 
-_若是第一次运行程序，上述步骤会执行两遍_
+## 本地运行
+
+```bash
+go run .
+```
+
+或编译后运行：
+
+```bash
+go build -ldflags="-s -w" -o zfcheckscores .
+URL=... USERNAME=... PASSWORD=... TOKEN=... ./zfcheckscores
+```
 
 ## 许可证
 
-`Copyright © 2024 NianBroken. All rights reserved.`
+Apache-2.0
 
-本项目采用 [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0 "Apache-2.0") 许可证。简而言之，你可以自由使用、修改和分享本项目的代码，但前提是在其衍生作品中必须保留原始许可证和版权信息，并且必须以相同的许可证发布所有修改过的代码。
+## 致谢
 
-## 特别感谢
+- [openschoolcn/zfn_api](https://github.com/openschoolcn/zfn_api) — 正方 API 参考
+- [NianBroken/ZFCheckScores](https://github.com/NianBroken/ZFCheckScores) — 原始 Python 项目
 
-[openschoolcn/zfn_api](https://github.com/openschoolcn/zfn_api "openschoolcn/zfn_api")
+---
 
-## 恰饭
-
-[Great-Firewall](https://nianbroken.github.io/Great-Firewall/) 好用的 VPN
-
-[Ciii](https://ciii.klaio.top/) Codex 中转
-
-[Aizex](https://aizex.klaio.top/) ChatGPT 镜像站
-
-以上绝对都是性价比最高的。
-
-## 其他
-
-欢迎提交 `Issues` 和 `Pull requests`
+Copyright © 2024 NianBroken. All rights reserved.

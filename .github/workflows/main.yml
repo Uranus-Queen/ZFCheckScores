@@ -36,17 +36,20 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@main
         with:
-          go-version: "1.23"
+          go-version: "1.25"
+          cache: true
 
       - name: Build
         env:
           GOPROXY: "https://goproxy.cn,direct"
+          GOTOOLCHAIN: "auto"
         run: |
           go build -ldflags="-s -w" -o zfcheckscores .
 
       - name: Test
         env:
           GOPROXY: "https://goproxy.cn,direct"
+          GOTOOLCHAIN: "auto"
         run: |
           go test -v ./...
 

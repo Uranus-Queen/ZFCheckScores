@@ -51,8 +51,8 @@ func RenderGradeCard(d GradeCardData) (string, error) {
 		JS  template.JS
 	}{
 		GradeCardData: d,
-		CSS:            template.CSS(glassCSSEmbed),
-		JS:             template.JS(glassJSEmbed),
+		CSS:           template.CSS(glassCSSEmbed),
+		JS:            template.JS(glassJSEmbed),
 	}
 	var buf bytes.Buffer
 	if err := gradeCardTemplate.Execute(&buf, data); err != nil {

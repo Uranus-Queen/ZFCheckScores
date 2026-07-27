@@ -40,7 +40,7 @@
 
 | Name     | 例子                                | 说明                              |
 | -------- | ----------------------------------- | --------------------------------- |
-| URL      | https://jwgl.njtech.edu.cn/         | 教务系统地址（根路径，勿加 jwglxt）|
+| URL      | https://jwgl.njtech.edu.cn/jwglxt   | 教务系统地址（建议带 `/jwglxt` 上下文路径）|
 | USERNAME | 2023210333027                       | 学号                              |
 | PASSWORD | Y3xhaCkb5PZ4                        | 密码                              |
 | TOKEN    | J65KWMBfyDh3YPLpcvm8                | [Showdoc push token]              |
@@ -83,6 +83,21 @@ go run .
 go build -ldflags="-s -w" -o zfcheckscores .
 URL=... USERNAME=... PASSWORD=... TOKEN=... ./zfcheckscores
 ```
+
+## 故障排查
+
+程序运行失败时（Actions 显示红色 ✗，或推送内容出现「FATAL」），失败原因与建议会同时写入 **Actions 运行摘要（Step Summary）**，无需翻原始日志。常见分类：
+
+| 现象 / 原因 | 诊断提示关键词 | 处理建议 |
+| --- | --- | --- |
+| 登录被验证码 / WAF 拦截（GitHub IP 偶发） | `验证码 / WAF 拦截` | 在 Secrets 设置 `COOKIES`（浏览器登录后复制 `JSESSIONID`、`route`）复用会话；或改从校园网 / 信任 IP 触发 |
+| 用户名或密码错误 | `用户名或密码错误` | 检查 `USERNAME` / `PASSWORD` Secret |
+| 会话过期 / 未登录 | `会话已过期` | 设置 `COOKIES` 复用会话，或重新运行刷新登录 |
+| URL 缺少 `/jwglxt` 上下文路径 | `系统维护页面` | 将 `URL` 改为 `https://jwgl.njtech.edu.cn/jwglxt`（代码已兜底，但显式带上更稳） |
+| 教务系统维护 / 网络不可达 | `不可达` | 稍后重试；持续则确认 URL 与系统开放状态 |
+| 成绩接口网络请求失败 | `网络请求失败` | 网络抖动，下一轮通常自愈；持续则检查 URL |
+
+> 提示：验证码 / WAF 是**非校园网 IP 的常态限制**，不是程序 bug。配置 `COOKIES` 后基本可长期稳定运行。
 
 ## 许可证
 

@@ -131,12 +131,6 @@ func main() {
 	var logLines []string
 
 	switch {
-	case ui.Name == "":
-		reason := "个人信息为空，运行失败"
-		if lastUserInfoErr != "" {
-			reason += "（最后一次错误: " + lastUserInfoErr + "）"
-		}
-		logLines = append(logLines, reason)
 	case gradeErr:
 		logLines = append(logLines, "获取成绩时出错，运行失败")
 	case firstRun:
@@ -150,6 +144,18 @@ func main() {
 		if last := lastSubmission(curGrades); last != "" {
 			logLines = append(logLines, "最近一次: "+last)
 		}
+	}
+
+	// 个人信息缺失不再阻断推送：只要成绩接口可用就照常推送（与 Python 原版
+	// main.py 行为一致——原版在 info 为空时也只是记录错误、run_count 置 1，
+	// 但仍会继续拉成绩并推送）。仅把失败原因写入日志，便于在 Actions 里区分
+	// 是 WAF 拦截、IP 风控还是会话过期，而不是让整次运行空手而归。
+	if ui.Name == "" {
+		note := "个人信息为空（成绩推送仍照常）"
+		if lastUserInfoErr != "" {
+			note += "，最后一次错误: " + lastUserInfoErr
+		}
+		logLines = append(logLines, note)
 	}
 
 	// ── 11. Persist ──

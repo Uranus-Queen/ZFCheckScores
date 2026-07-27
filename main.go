@@ -104,12 +104,18 @@ func main() {
 		gpa, pctGPA = computeGPA(allGrades.Data)
 	}
 
-	// ── 8. Selected courses filtering (unpublished) ──
-	selText := selectedCoursesText(selData, curGrades)
+	// ── 8. Selected courses filtering (unpublished, current semester only) ──
+	// GetSelectedCourses(0,0) returns EVERY enrolled semester; the "未公布成绩"
+	// section must only compare the CURRENT semester's courses against the
+	// current-semester grades, otherwise past courses (whose grades live in
+	// other semesters, so they're absent from curGrades) wrongly appear as
+	// unpublished — exactly the "有些不是我这学期学的" symptom.
+	selDataCurrent := filterSelectedCoursesBySemester(selData, sem)
+	selText := selectedCoursesText(selDataCurrent, curGrades)
 
 	// ── 9. Build push pages ──
 	courses := gradeList(curGrades)
-	pending := pendingCourses(selData, curGrades)
+	pending := pendingCourses(selDataCurrent, curGrades)
 	fullPage := buildPage("📊 成绩已更新", ui.Name, ui.SID, sem.Label(), courses, gpa, pctGPA, selText, cfg)
 	fullHTML, err := push.RenderGradeCard(push.GradeCardData{
 		Title:     pushTitle,
@@ -388,6 +394,22 @@ func pendingCourses(selData *zfn.SelectedCoursesData, curGrades *zfn.GradeData) 
 	return out
 }
 
+// filterSelectedCoursesBySemester returns a copy of sel keeping only the
+// courses that belong to the given semester. Returns nil if sel is nil.
+func filterSelectedCoursesBySemester(sel *zfn.SelectedCoursesData, sem semester.Semester) *zfn.SelectedCoursesData {
+	if sel == nil {
+		return nil
+	}
+	out := &zfn.SelectedCoursesData{Year: sem.Year, Term: sem.Term}
+	for _, c := range sel.Courses {
+		if sem.ContainsCourse(c) {
+			out.Courses = append(out.Courses, c)
+		}
+	}
+	out.Count = len(out.Courses)
+	return out
+}
+
 // selectedCoursesText returns a plain-text list of enrolled courses that have
 // no grade yet. Returns "" if none.
 func selectedCoursesText(selData *zfn.SelectedCoursesData, curGrades *zfn.GradeData) string {
@@ -403,7 +425,8 @@ func selectedCoursesText(selData *zfn.SelectedCoursesData, curGrades *zfn.GradeD
 }
 
 // scoreClass maps a grade string to a Liquid Glass CSS class:
-//   "g"   → green (good), "fail" → red (failing), "" → default white.
+//
+//	"g"   → green (good), "fail" → red (failing), "" → default white.
 func scoreClass(g string) string {
 	if f, err := strconv.ParseFloat(g, 64); err == nil {
 		if f < 60 {

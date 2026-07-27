@@ -1,25 +1,59 @@
-# ─── Python (leftover from migration) ───
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache/
+# ─────────────────────────────────────────────
+# ZFCheckScores — Go CLI (.gitignore)
+# 原则：仅提交源码、文档与 CI 配置；构建产物、运行时
+# 数据、本地密钥/环境变量、编辑器与系统杂项一律忽略。
+# ─────────────────────────────────────────────
 
-# ─── Go build artifacts ───
-zfcheckscores
-zfcheckscores.exe
-*.exe
+# ─── Go 构建 & 测试产物 ───
+zfcheckscores          # `go build -o zfcheckscores .` 产物 (Linux/macOS)
+*.exe                  # Windows 构建/测试二进制
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test                 # `go test -c` 产物
+*.out                  # go tool 输出
+*.coverprofile
+coverage.txt
+coverage.out
+profile.out
 
-# ─── Runtime state (grade hashes, personal info, ad lists) ───
+# ─── Go 模块 / 工作区 ───
+/vendor/               # 当前使用 Go modules（无 vendor）；若误生成则忽略
+go.work
+go.work.sum
+
+# ─── 运行时数据（程序自动生成）───
 data/
+*.log
 
-# ─── IDE / Editor ───
+# ─── 本地密钥 / 环境变量（含 PASSWORD、TOKEN）───
+.env
+.env.*
+*.env
+
+# ─── 编辑器 / IDE ───
 .vscode/
 .idea/
+.vs/
 *.swp
 *.swo
+*~
 
-# ─── OS ───
+# ─── 操作系统杂项 ───
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+ehthumbs.db
 Thumbs.db
 desktop.ini
+
+# ─── 本地 agent 状态（WorkBuddy，与项目无关）───
+.workbuddy/
+
+# ─── 本地预览 / 临时产物（非项目源码，不入库）───
+preview_push.html
+*.preview.html

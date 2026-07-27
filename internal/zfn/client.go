@@ -405,22 +405,21 @@ func (c *Client) jarCookies() map[string]string {
 // ---------- User Info ----------
 
 // GetUserInfo fetches personal information from the 正方 system.
-// Returns the raw JSON data which includes fields like xm (name), xh (student ID), etc.
+// It first tries the JSON endpoint used by zfn_api; if that returns an HTML
+// page, empty JSON, or a non-200 response, it falls back to parsing the
+// student info maintenance HTML page (the _get_info behaviour of zfn_api).
 func (c *Client) GetUserInfo() (*UserInfoResult, error) {
 	resp, err := c.get("/xsxxxggl/xsxxwh_cxCkDgxsxx.html?gnmkdm=N100801")
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		body, _ := readBody(resp)
-		sample := strings.TrimSpace(string(body))
-		if len(sample) > 120 {
-			sample = sample[:120] + "..."
-		}
-		return &UserInfoResult{Code: 2333, Msg: fmt.Sprintf("教务系统挂了 (HTTP %d) body=%q", resp.StatusCode, sample)}, nil
-	}
+
 	body, _ := readBody(resp)
+	sample := strings.TrimSpace(string(body))
+	if len(sample) > 160 {
+		sample = sample[:160] + "..."
+	}
 
 	// Check for session expiry (redirect to login page)
 	doc, _ := goquery.NewDocumentFromReader(bytes.NewReader(body))
@@ -432,15 +431,153 @@ func (c *Client) GetUserInfo() (*UserInfoResult, error) {
 		return &UserInfoResult{Code: 1001, Msg: "会话被 WAF 拦截（返回验证码页）"}, nil
 	}
 
+	// If the HTTP status is not 200, try the HTML fallback before giving up.
+	if resp.StatusCode != 200 {
+		fallback, fbErr := c.getUserInfoFromHTML()
+		if fallback != nil && fallback.Code == 1000 {
+			return fallback, nil
+		}
+		return &UserInfoResult{Code: 2333, Msg: fmt.Sprintf("教务系统挂了 (HTTP %d) body=%q; 备用 HTML 解析也失败: %v", resp.StatusCode, sample, fbErr)}, nil
+	}
+
+	// Some deployments return an HTML page here even with HTTP 200.
+	ct := strings.ToLower(resp.Header.Get("Content-Type"))
+	if strings.Contains(sample, "<") || strings.Contains(ct, "text/html") {
+		fallback, fbErr := c.getUserInfoFromHTML()
+		if fallback != nil && fallback.Code == 1000 {
+			return fallback, nil
+		}
+		return &UserInfoResult{Code: 2333, Msg: fmt.Sprintf("个人信息接口返回 HTML 而非 JSON; 备用 HTML 解析也失败: %v", fbErr)}, nil
+	}
+
 	var raw map[string]interface{}
 	if err := json.Unmarshal(body, &raw); err != nil {
-		sample := strings.TrimSpace(string(body))
-		if len(sample) > 160 {
-			sample = sample[:160] + "..."
+		fallback, fbErr := c.getUserInfoFromHTML()
+		if fallback != nil && fallback.Code == 1000 {
+			return fallback, nil
 		}
-		return &UserInfoResult{Code: 2333, Msg: fmt.Sprintf("解析个人信息失败（响应非 JSON）: %q", sample)}, nil
+		return &UserInfoResult{Code: 2333, Msg: fmt.Sprintf("解析个人信息失败（响应非 JSON）: %q; 备用 HTML 解析也失败: %v", sample, fbErr)}, nil
 	}
+
+	// Empty JSON object -> fallback to HTML page.
+	if len(raw) == 0 {
+		fallback, fbErr := c.getUserInfoFromHTML()
+		if fallback != nil && fallback.Code == 1000 {
+			return fallback, nil
+		}
+		return &UserInfoResult{Code: 1005, Msg: fmt.Sprintf("个人信息接口返回空 JSON; 备用 HTML 解析也失败: %v", fbErr)}, nil
+	}
+
 	return &UserInfoResult{Code: 1000, Msg: "获取个人信息成功", Data: raw}, nil
+}
+
+// getUserInfoFromHTML is the fallback used by zfn_api's _get_info().
+// It parses the student information maintenance HTML page and returns the
+// same field names as the JSON endpoint.
+func (c *Client) getUserInfoFromHTML() (*UserInfoResult, error) {
+	resp, err := c.get("/xsxxxggl/xsgrxxwh_cxXsgrxx.html?gnmkdm=N100801")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return &UserInfoResult{Code: 2333, Msg: fmt.Sprintf("备用个人信息页 HTTP %d", resp.StatusCode)}, nil
+	}
+
+	body, _ := readBody(resp)
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+	if err != nil {
+		return &UserInfoResult{Code: 2333, Msg: "解析备用个人信息页失败"}, nil
+	}
+	if strings.TrimSpace(doc.Find("h5").Text()) == "用户登录" {
+		return &UserInfoResult{Code: 1006, Msg: "未登录或已过期，请重新登录"}, nil
+	}
+
+	pending := make(map[string]string)
+	// Student basic info and other sections use div.col-sm-6 / div.col-sm-4.
+	doc.Find("div.col-sm-6 div.form-group, div.col-sm-4 div.form-group").Each(func(_ int, s *goquery.Selection) {
+		key := strings.TrimSpace(s.Find("label.col-sm-4.control-label").Text())
+		value := strings.TrimSpace(s.Find("div.col-sm-8 p.form-control-static").Text())
+		if key != "" {
+			pending[key] = value
+		}
+	})
+
+	if pending["学号："] == "" {
+		// The page may expose college/class on a separate tab; try to backfill.
+		c.backfillCollegeInfo(pending)
+		if pending["学号："] == "" {
+			return &UserInfoResult{Code: 1014, Msg: "备用个人信息页未解析到学号，可能已毕业或无数据"}, nil
+		}
+	}
+
+	result := map[string]interface{}{
+		"sid":        pending["学号："],
+		"name":       pending["姓名："],
+		"class_name": firstNonEmpty(pending["班级名称："], pending["班级："]),
+		"college_name": firstNonEmpty(pending["学院名称："], pending["学院："]),
+		"major_name":   firstNonEmpty(pending["专业名称："], pending["专业："]),
+	}
+
+	// If college/class are still missing, try the student-ID-card replacement entry.
+	if result["class_name"] == "" || result["college_name"] == "" {
+		c.backfillCollegeInfo(pending)
+		if result["class_name"] == "" {
+			result["class_name"] = firstNonEmpty(pending["班级："], pending["班级名称："])
+		}
+		if result["college_name"] == "" {
+			result["college_name"] = firstNonEmpty(pending["学院："], pending["学院名称："])
+		}
+		if result["major_name"] == "" {
+			result["major_name"] = firstNonEmpty(pending["专业："], pending["专业名称："])
+		}
+	}
+
+	return &UserInfoResult{Code: 1000, Msg: "获取个人信息成功（HTML 备用）", Data: result}, nil
+}
+
+// backfillCollegeInfo mirrors zfn_api's behaviour of fetching the student-ID
+// replacement application page when the main info page lacks college/major/class.
+func (c *Client) backfillCollegeInfo(pending map[string]string) {
+	resp, err := c.postForm("/xszbbgl/xszbbgl_cxXszbbsqIndex.html?doType=details&gnmkdm=N106005", url.Values{
+		"offDetails": {"1"},
+		"gnmkdm":     {"N106005"},
+		"czdmKey":    {"00"},
+	})
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return
+	}
+	body, _ := readBody(resp)
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	if strings.TrimSpace(doc.Find("p.error_title").Text()) == "无功能权限，" {
+		return
+	}
+	doc.Find("div.col-sm-6 div.form-group").Each(func(_ int, s *goquery.Selection) {
+		key := strings.TrimSpace(s.Find("label.col-sm-4.control-label").Text())
+		if key != "" && !strings.HasSuffix(key, "：") {
+			key = key + "："
+		}
+		value := strings.TrimSpace(s.Find("div.col-sm-8 label.control-label").Text())
+		if key != "" {
+			pending[key] = value
+		}
+	})
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // ---------- Grade ----------

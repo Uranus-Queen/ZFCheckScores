@@ -166,8 +166,9 @@ jobs:
 
           go run .
 
-      - name: Force push changes to the running branch
+      - name: Commit and push state (data persistence)
         run: |
           git add .
           git commit -m "Update from GitHub Actions" || true
-          git push origin $GITHUB_REF_NAME --force
+          git pull --rebase origin $GITHUB_REF_NAME || true
+          git push origin $GITHUB_REF_NAME

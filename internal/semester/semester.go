@@ -56,6 +56,20 @@ func (s Semester) Label() string {
 	return strconv.Itoa(s.Year) + "-" + strconv.Itoa(s.Year+1) + " 学年第" + strconv.Itoa(s.Term) + "学期"
 }
 
+// ContainsCourse reports whether the given selected course belongs to this
+// semester. It matches on the course's academic-year name (e.g. "2025-2026")
+// and term name (e.g. "第二学期" / "2"). Used to filter the full selected-courses
+// list (which spans every enrolled semester) down to the current one, so the
+// "未公布成绩" section never shows courses from other semesters.
+func (s Semester) ContainsCourse(c zfn.SelectedCourse) bool {
+	if s.Year == 0 {
+		return false
+	}
+	y := parseCourseYear(c.CourseYear)
+	t := parseCourseTerm(c.CourseSemester)
+	return y == s.Year && t == s.Term
+}
+
 // fromSelectedCourses fetches all enrolled courses and extracts the
 // highest academic year+term combination.
 func fromSelectedCourses(c *zfn.Client) (Semester, bool) {

@@ -73,8 +73,47 @@ func (c *Client) Cookies() map[string]string { return c.cookies }
 
 // ---------- helpers ----------
 
+// resolveURL joins the base URL with a request path while PRESERVING any
+// context path the base URL carries (e.g. "/jwglxt").
+//
+// NOTE: we must NOT use url.URL.ResolveReference with an absolute-path
+// reference (path starting with "/"), because ResolveReference replaces the
+// entire base path with the reference — dropping the "/jwglxt" context path.
+// 正方 deployments are mounted under a context path; stripping it makes every
+// request 404 with the "系统维护页面". We concatenate instead, which mirrors
+// Python's urljoin(base, "xtgl/...") behavior and keeps the context path.
 func (c *Client) resolveURL(path string) string {
-	return c.baseURL.ResolveReference(&url.URL{Path: path}).String()
+	return c.baseURL.String() + strings.TrimPrefix(path, "/")
+}
+
+// isMaintenancePage reports whether the body looks like 正方's
+// "系统维护页面" (system maintenance page) — returned as HTTP 404 when the
+// request path is wrong (e.g. missing the /jwglxt context path).
+func isMaintenancePage(b []byte) bool {
+	s := string(b)
+	return strings.Contains(s, "系统维护页面") || strings.Contains(s, "animationException")
+}
+
+// isMaintenancePageMsg is the message-string counterpart of isMaintenancePage,
+// used to decide whether to retry login with the /jwglxt context path appended.
+func isMaintenancePageMsg(msg string) bool {
+	return strings.Contains(msg, "系统维护页面") || strings.Contains(msg, "animationException")
+}
+
+// withContextPath returns a copy of u whose path has seg appended as a context
+// path (e.g. "/jwglxt"), preserving any existing context path. It is a no-op if
+// the segment is already present.
+func withContextPath(u *url.URL, seg string) *url.URL {
+	cp := *u
+	if strings.Contains(cp.Path, "/"+seg) {
+		return &cp
+	}
+	if cp.Path == "" || cp.Path == "/" {
+		cp.Path = "/" + seg + "/"
+	} else {
+		cp.Path = strings.TrimRight(cp.Path, "/") + "/" + seg + "/"
+	}
+	return &cp
 }
 
 func defaultHeaders(referer string) map[string]string {
@@ -117,8 +156,8 @@ func readBody(r *http.Response) ([]byte, error) {
 
 // ---------- URLs ----------
 
-func (c *Client) loginURL() string  { return c.resolveURL("/xtgl/login_slogin.html") }
-func (c *Client) keyURL() string    { return c.resolveURL("/xtgl/login_getPublicKey.html") }
+func (c *Client) loginURL() string   { return c.resolveURL("/xtgl/login_slogin.html") }
+func (c *Client) keyURL() string     { return c.resolveURL("/xtgl/login_getPublicKey.html") }
 func (c *Client) kaptchaURL() string { return c.resolveURL("/kaptcha") }
 
 // ---------- RSA encryption ----------
@@ -221,11 +260,11 @@ type GradeResult struct {
 
 // GradeData holds the top-level grade response.
 type GradeData struct {
-	SID    string        `json:"sid"`
-	Name   string        `json:"name"`
-	Year   int           `json:"year"`
-	Term   int           `json:"term"`
-	Count  int           `json:"count"`
+	SID     string        `json:"sid"`
+	Name    string        `json:"name"`
+	Year    int           `json:"year"`
+	Term    int           `json:"term"`
+	Count   int           `json:"count"`
 	Courses []GradeCourse `json:"courses"`
 }
 
@@ -263,16 +302,16 @@ type SelectedCourse struct {
 
 // SelectedCoursesResult holds the selected-courses response.
 type SelectedCoursesResult struct {
-	Code    int
-	Msg     string
-	Data    *SelectedCoursesData
+	Code int
+	Msg  string
+	Data *SelectedCoursesData
 }
 
 // SelectedCoursesData holds the courses list.
 type SelectedCoursesData struct {
-	Year    int             `json:"year"`
-	Term    int             `json:"term"`
-	Count   int             `json:"count"`
+	Year    int              `json:"year"`
+	Term    int              `json:"term"`
+	Count   int              `json:"count"`
 	Courses []SelectedCourse `json:"courses"`
 }
 
@@ -280,13 +319,39 @@ type SelectedCoursesData struct {
 
 // Login authenticates with username and password.
 // Flow: RSA-encrypt first → if server responds "用户名或密码", retry with raw password.
+//
+// 正方 deployments are typically mounted under a context path such as /jwglxt.
+// If the configured base URL returns the "系统维护页面" (a 404-style maintenance
+// page), we retry once with /jwglxt appended so that a base URL without the
+// context path still works out of the box.
 func (c *Client) Login(username, password string) *LoginResult {
+	res := c.loginAttempt(username, password)
+	if res != nil && res.Code == 2333 && isMaintenancePageMsg(res.Msg) {
+		c.baseURL = withContextPath(c.baseURL, "jwglxt")
+		res = c.loginAttempt(username, password)
+	}
+	return res
+}
+
+// loginAttempt performs a single username/password login using the current
+// base URL. It returns a non-1000 result on any failure (the caller may retry
+// with a corrected context path).
+func (c *Client) loginAttempt(username, password string) *LoginResult {
 	// 1) GET login page → csrf token
 	resp, err := c.get("/xtgl/login_slogin.html")
-	if err != nil || resp.StatusCode != 200 {
-		return &LoginResult{Code: 2333, Msg: "教务系统挂了"}
+	if err != nil {
+		return &LoginResult{Code: 2333, Msg: "教务系统挂了（登录页无法访问）"}
 	}
 	body, _ := readBody(resp)
+	// 正方 returns the "系统维护页面" as HTTP 404 when the request is missing
+	// the context path (e.g. /jwglxt). Detect this BEFORE the status check so
+	// the caller can retry with the context path appended.
+	if isMaintenancePage(body) {
+		return &LoginResult{Code: 2333, Msg: "访问教务系统返回『系统维护页面』，很可能 URL 缺少 /jwglxt 上下文路径（请确认 URL 为 https://jwgl.njtech.edu.cn/jwglxt）"}
+	}
+	if resp.StatusCode != 200 {
+		return &LoginResult{Code: 2333, Msg: "教务系统挂了（登录页 HTTP " + strconv.Itoa(resp.StatusCode) + "）"}
+	}
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
 		return &LoginResult{Code: 2333, Msg: "解析登录页失败"}
@@ -365,6 +430,9 @@ func (c *Client) postLogin(csrf, username, encrypted, rawPassword string) *Login
 		return &LoginResult{Code: 2333, Msg: "登录请求失败"}
 	}
 	body, _ := readBody(resp)
+	if isMaintenancePage(body) {
+		return &LoginResult{Code: 2333, Msg: "登录请求返回『系统维护页面』，很可能 URL 缺少 /jwglxt 上下文路径（请确认 URL 为 https://jwgl.njtech.edu.cn/jwglxt）"}
+	}
 	doc, _ := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	tips := strings.TrimSpace(doc.Find("p#tips").Text())
 
@@ -437,7 +505,14 @@ func (c *Client) GetUserInfo() (*UserInfoResult, error) {
 		if fallback != nil && fallback.Code == 1000 {
 			return fallback, nil
 		}
-		return &UserInfoResult{Code: 2333, Msg: fmt.Sprintf("教务系统挂了 (HTTP %d) body=%q; 备用 HTML 解析也失败: %v", resp.StatusCode, sample, fbErr)}, nil
+		msg := fmt.Sprintf("教务系统挂了 (HTTP %d)", resp.StatusCode)
+		if isMaintenancePage(body) {
+			msg += "：返回『系统维护页面』，很可能 URL 缺少 /jwglxt 上下文路径（请确认 URL 为 https://jwgl.njtech.edu.cn/jwglxt）"
+		} else {
+			msg += fmt.Sprintf(" body=%q", sample)
+		}
+		msg += fmt.Sprintf("；备用 HTML 解析也失败: %v", fbErr)
+		return &UserInfoResult{Code: 2333, Msg: msg}, nil
 	}
 
 	// Some deployments return an HTML page here even with HTTP 200.
@@ -512,9 +587,9 @@ func (c *Client) getUserInfoFromHTML() (*UserInfoResult, error) {
 	}
 
 	result := map[string]interface{}{
-		"sid":        pending["学号："],
-		"name":       pending["姓名："],
-		"class_name": firstNonEmpty(pending["班级名称："], pending["班级："]),
+		"sid":          pending["学号："],
+		"name":         pending["姓名："],
+		"class_name":   firstNonEmpty(pending["班级名称："], pending["班级："]),
 		"college_name": firstNonEmpty(pending["学院名称："], pending["学院："]),
 		"major_name":   firstNonEmpty(pending["专业名称："], pending["专业："]),
 	}
@@ -615,10 +690,14 @@ func (c *Client) GetGrade(year, term int) (*GradeResult, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return &GradeResult{Code: 2333, Msg: "教务系统挂了"}, nil
-	}
 	body, _ := readBody(resp)
+	if resp.StatusCode != 200 {
+		msg := "教务系统挂了"
+		if isMaintenancePage(body) {
+			msg += "：返回『系统维护页面』，很可能 URL 缺少 /jwglxt 上下文路径（请确认 URL 为 https://jwgl.njtech.edu.cn/jwglxt）"
+		}
+		return &GradeResult{Code: 2333, Msg: msg}, nil
+	}
 
 	doc, _ := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if strings.TrimSpace(doc.Find("h5").Text()) == "用户登录" {
@@ -627,18 +706,18 @@ func (c *Client) GetGrade(year, term int) (*GradeResult, error) {
 
 	var raw struct {
 		Items []struct {
-			XH   string `json:"xh"`
-			XM   string `json:"xm"`
-			KCMC string `json:"kcmc"`
-			JSXM string `json:"jsxm"`
+			XH    string `json:"xh"`
+			XM    string `json:"xm"`
+			KCMC  string `json:"kcmc"`
+			JSXM  string `json:"jsxm"`
 			JXBMC string `json:"jxbmc"`
 			JXBID string `json:"jxb_id"`
-			XF   string `json:"xf"`
-			CJ   string `json:"cj"`
-			JD   string `json:"jd"`
-			TJSJ string `json:"tjsj"`
+			XF    string `json:"xf"`
+			CJ    string `json:"cj"`
+			JD    string `json:"jd"`
+			TJSJ  string `json:"tjsj"`
 			TJRXM string `json:"tjrxm"`
-			XFJD string `json:"xfjd"`
+			XFJD  string `json:"xfjd"`
 			BFZCJ string `json:"bfzcj"`
 		} `json:"items"`
 	}
@@ -707,10 +786,14 @@ func (c *Client) GetSelectedCourses(year, term int) (*SelectedCoursesResult, err
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return &SelectedCoursesResult{Code: 2333, Msg: "教务系统挂了"}, nil
-	}
 	body, _ := readBody(resp)
+	if resp.StatusCode != 200 {
+		msg := "教务系统挂了"
+		if isMaintenancePage(body) {
+			msg += "：返回『系统维护页面』，很可能 URL 缺少 /jwglxt 上下文路径（请确认 URL 为 https://jwgl.njtech.edu.cn/jwglxt）"
+		}
+		return &SelectedCoursesResult{Code: 2333, Msg: msg}, nil
+	}
 
 	doc, _ := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if strings.TrimSpace(doc.Find("h5").Text()) == "用户登录" {
@@ -719,12 +802,12 @@ func (c *Client) GetSelectedCourses(year, term int) (*SelectedCoursesResult, err
 
 	var raw struct {
 		Items []struct {
-			JXBID  string `json:"jxb_id"`
-			JXBMC  string `json:"jxbmc"`
-			KCMC   string `json:"kcmc"`
-			JSXM   string `json:"jsxm"`
-			XNMC   string `json:"xnmc"`
-			XQMMC  string `json:"xqmmc"`
+			JXBID string `json:"jxb_id"`
+			JXBMC string `json:"jxbmc"`
+			KCMC  string `json:"kcmc"`
+			JSXM  string `json:"jsxm"`
+			XNMC  string `json:"xnmc"`
+			XQMMC string `json:"xqmmc"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {

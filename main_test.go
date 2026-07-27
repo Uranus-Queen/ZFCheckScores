@@ -259,3 +259,31 @@ func parseExponentForTest(s string) (int, error) {
 	}
 	return e, nil
 }
+
+// ── scoreClass: grade → Liquid Glass color class ──
+
+func TestScoreClass(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"95", "g"},
+		{"85", "g"},
+		{"84", ""},
+		{"60", ""},
+		{"59", "fail"},
+		{"0", "fail"},
+		{"优", "g"},
+		{"良", "g"},
+		{"及格", "g"},
+		{"不及格", "fail"},
+		{"缺考", "fail"},
+		{"作弊", "fail"},
+	}
+	for _, c := range cases {
+		if got := scoreClass(c.in); got != c.want {
+			t.Errorf("scoreClass(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// ── buildPageHTML behavior moved to internal/push/render_test.go ──
+// (RenderGradeCard: structure + HTML escaping + first-run banner)
+

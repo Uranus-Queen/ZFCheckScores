@@ -56,4 +56,10 @@ desktop.ini
 
 # ─── 本地预览 / 临时产物（非项目源码，不入库）───
 preview_push.html
+preview_spatial.html
+preview_refactored.html
+preview_cool.html
+preview_v8.html
+preview_light.html
+preview_*.html
 *.preview.html

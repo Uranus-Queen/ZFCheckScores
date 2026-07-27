@@ -1,0 +1,15 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="dark"><title>{{.Title}}</title><style>{{.CSS}}</style></head><body><div class="container">
+
+<div class="glass" data-glass style="--i:0"><div class="glass__shadow"></div><div class="glass__warp"></div><div class="glass__border"></div><div class="glass__border-2"></div><div class="glass__content" style="padding:24px 24px 20px;text-align:center"><div class="preview-title" style="padding-top:0"><h1 class="sem">{{.SemLabel}}</h1><p class="subtitle">成绩推送</p></div></div></div>
+
+{{if .FirstRun}}<div class="first-run"><p>你的程序运行成功</p><p>从现在开始，将每隔 <strong>30 分钟</strong> 自动检测一次成绩是否有更新，若有更新将通过微信推送及时通知你。</p></div>{{end}}
+
+{{if .Courses}}<div class="glass" data-glass style="--i:1"><div class="glass__shadow"></div><div class="glass__warp"></div><div class="glass__border"></div><div class="glass__border-2"></div><div class="glass__content"><h2 class="card-header">已出成绩</h2><div class="list-body" style="padding:0">{{range .Courses}}<div class="course-row"><div class="course-info"><div class="course-name">{{.Course}}</div><div class="course-meta">{{.Meta}}</div></div><div class="course-right"><span class="course-score {{.ScoreClass}}">{{.Grade}}</span></div></div>{{end}}</div></div></div>{{end}}
+
+<div class="glass" data-glass style="--i:2"><div class="glass__shadow"></div><div class="glass__warp"></div><div class="glass__border"></div><div class="glass__border-2"></div><div class="glass__content"><h2 class="card-header">GPA 统计</h2><div class="gpa-grid"><div class="gpa-cell"><div class="gpa-val">{{.GPA}}</div><div class="gpa-lbl">学期 GPA</div></div><div class="gpa-cell"><div class="gpa-val">{{.PctGPA}}</div><div class="gpa-lbl">百分制均分</div></div></div></div></div>
+
+{{if .Pending}}<div class="glass" data-glass style="--i:3"><div class="glass__shadow"></div><div class="glass__warp"></div><div class="glass__border"></div><div class="glass__border-2"></div><div class="glass__content"><h2 class="card-header">未公布成绩</h2><div class="pending-list">{{range .Pending}}<div class="pending-item"><span class="dot"></span><span class="cn">{{.Name}}</span><span class="tn">{{.Teacher}}</span></div>{{end}}</div></div></div>{{end}}
+
+<div class="footer">{{.Copyright}}</div>
+
+</div><script>{{.JS}}</script></body></html>

@@ -413,7 +413,12 @@ func (c *Client) GetUserInfo() (*UserInfoResult, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return &UserInfoResult{Code: 2333, Msg: "教务系统挂了"}, nil
+		body, _ := readBody(resp)
+		sample := strings.TrimSpace(string(body))
+		if len(sample) > 120 {
+			sample = sample[:120] + "..."
+		}
+		return &UserInfoResult{Code: 2333, Msg: fmt.Sprintf("教务系统挂了 (HTTP %d) body=%q", resp.StatusCode, sample)}, nil
 	}
 	body, _ := readBody(resp)
 

@@ -48,7 +48,8 @@ func main() {
 	} else {
 		res := client.Login(cfg.Username, cfg.Password)
 		if res.Code != 1000 {
-			log.Fatalf("login: %s (code=%d)", res.Msg, res.Code)
+			reason, suggestion := classifyFailure(res.Code, res.Msg)
+			reportFatal(fmt.Sprintf("登录失败：%s\n建议：%s", reason, suggestion), cfg)
 		}
 	}
 
@@ -76,11 +77,13 @@ func main() {
 		runs = 2
 	}
 	var curGrades *zfn.GradeData
+	var lastGradeRes *zfn.GradeResult
 	gradeEmpty, gradeErr := false, false
 
 	for i := 0; i < runs; i++ {
 		_ = st.SnapshotGrade()
 		gr, _ := retryGrade(client, sem.Year, sem.Term)
+		lastGradeRes = gr
 		if gr == nil || gr.Data == nil || len(gr.Data.Courses) == 0 {
 			if gr != nil && gr.Code == 1005 {
 				gradeEmpty = true
@@ -138,7 +141,8 @@ func main() {
 
 	switch {
 	case gradeErr:
-		logLines = append(logLines, "获取成绩时出错，运行失败")
+		reason, suggestion := classifyGrade(lastGradeRes)
+		reportFatal(fmt.Sprintf("获取成绩失败：%s\n建议：%s", reason, suggestion), cfg)
 	case firstRun:
 		logLines = append(logLines, firstRunMsg)
 		logLines = append(logLines, pushAndReport(cfg, pushTitle, fullHTML))
@@ -160,6 +164,11 @@ func main() {
 		note := "个人信息为空（成绩推送仍照常）"
 		if lastUserInfoErr != "" {
 			note += "，最后一次错误: " + lastUserInfoErr
+		}
+		// 验证码/WAF 拦截或会话过期导致的个人信息缺失，给出可操作建议。
+		if lastUserInfoCode == 1001 || lastUserInfoCode == 1006 {
+			_, suggestion := classifyFailure(lastUserInfoCode, lastUserInfoErr)
+			note += "；建议：" + suggestion
 		}
 		logLines = append(logLines, note)
 	}
@@ -193,6 +202,70 @@ func pushAndReport(cfg *config.Config, title, content string) string {
 	return resp
 }
 
+// ──────────────────────────── failure diagnosis ────────────────────────────
+
+// classifyFailure maps a 正方 API result code+message to a categorized
+// (reason, suggestion) pair. Its purpose is to turn cryptic failures —
+// captcha/WAF challenge, session expiry, missing /jwglxt context path,
+// system maintenance, network down — into clear, user-facing guidance
+// instead of a bare "运行失败" that silently passes as a green check.
+//
+// The codes mirror those produced by internal/zfn:
+//
+//	1001 → 验证码/WAF 拦截（登录页含 input#yzm）
+//	1002 → 用户名或密码错误
+//	1006 → 会话过期 / 未登录
+//	2333 → 教务系统不可达或落到系统维护页
+//	998  → 登录页返回未知提示
+func classifyFailure(code int, msg string) (reason, suggestion string) {
+	switch {
+	case code == 1001:
+		return "登录被验证码 / WAF 拦截（返回验证码页）",
+			"在仓库 Secrets 设置 COOKIES（浏览器登录教务系统后复制 JSESSIONID、route 等）以复用会话跳过验证码；或改从校园网 / 信任 IP 触发。"
+	case code == 1002:
+		return "用户名或密码错误",
+			"检查仓库 Secrets 的 USERNAME / PASSWORD 是否正确。"
+	case code == 1006:
+		return "会话已过期或未登录",
+			"设置 COOKIES Secret 复用浏览器会话，或重新运行以刷新登录。"
+	case code == 2333 && strings.Contains(msg, "系统维护页面"):
+		return "URL 缺少 /jwglxt 上下文路径（请求落到系统维护页）",
+			"将 URL Secret 改为 https://jwgl.njtech.edu.cn/jwglxt（代码已兜底，但显式带上更稳）。"
+	case code == 2333:
+		return "教务系统当前不可达（可能维护或网络异常）",
+			"稍后重试；若持续，确认 URL 是否正确、教务系统是否对外开放。"
+	case code == 998:
+		return "登录页返回未知提示：" + msg,
+			"直接打开教务系统登录页查看具体拦截原因。"
+	default:
+		return fmt.Sprintf("未知错误（code=%d）：%s", code, msg),
+			"查看 Actions 日志获取完整响应，必要时提 issue。"
+	}
+}
+
+// classifyGrade classifies a failed grade fetch. A nil result means the HTTP
+// request itself failed (connection refused / timeout), distinct from a
+// 正方-level error code.
+func classifyGrade(gr *zfn.GradeResult) (reason, suggestion string) {
+	if gr == nil {
+		return "成绩接口网络请求失败（连接被拒 / 超时）",
+			"稍后重试；若持续，检查网络或 URL 是否正确。"
+	}
+	return classifyFailure(gr.Code, gr.Msg)
+}
+
+// reportFatal logs a categorized failure, writes it to the GitHub Actions
+// step summary (so the reason shows up without opening raw logs), and exits
+// non-zero — turning a previously silent green check into a visible failed run.
+func reportFatal(msg string, cfg *config.Config) {
+	log.Println("FATAL:", msg)
+	if cfg.GitHubActions && cfg.StepSummary != "" {
+		summary := fmt.Sprintf("# %s\n\n❌ %s\n\n---\n%s", pushTitle, msg, copyright)
+		_ = os.WriteFile(cfg.StepSummary, []byte(summary), 0644)
+	}
+	os.Exit(1)
+}
+
 // ──────────────────────────────── data types ────────────────────────────────
 
 type userInfo struct {
@@ -204,6 +277,11 @@ type userInfo struct {
 // "个人信息为空" (e.g. WAF challenge, session expiry, gateway error).
 var lastUserInfoErr string
 
+// lastUserInfoCode mirrors lastUserInfoErr, carrying the code of the last
+// failed 个人信息 fetch so the run log can suggest a concrete fix
+// (e.g. 1001/1006 → set COOKIES Secret).
+var lastUserInfoCode int
+
 // ────────────────────────────── fetch helpers ───────────────────────────────
 
 func fetchUserInfo(c *zfn.Client) (*userInfo, *zfn.GradeResult) {
@@ -213,6 +291,7 @@ func fetchUserInfo(c *zfn.Client) (*userInfo, *zfn.GradeResult) {
 		if err != nil {
 			log.Printf("warn: user info attempt %d/5: %v", i, err)
 			lastUserInfoErr = err.Error()
+			lastUserInfoCode = 2333
 			zfn.Backoff(i, 5)
 			continue
 		}
@@ -222,6 +301,7 @@ func fetchUserInfo(c *zfn.Client) (*userInfo, *zfn.GradeResult) {
 		}
 		log.Printf("warn: user info attempt %d/5: code=%d msg=%s", i, r.Code, r.Msg)
 		lastUserInfoErr = fmt.Sprintf("code=%d %s", r.Code, r.Msg)
+		lastUserInfoCode = r.Code
 		zfn.Backoff(i, 5)
 	}
 	if result == nil || result.Data == nil {

@@ -53,12 +53,6 @@ jobs:
         run: |
           go test -v ./...
 
-      - name: Get Connection
-        run: |
-          url="https://ifconfig.me/all"
-          response=$(curl -s -X GET "$url")
-          echo "$response"
-
       - name: Run main program
         id: run_main_program
         env:
@@ -164,7 +158,7 @@ jobs:
           echo "Copyright © 2024 NianBroken. All rights reserved."
           echo "------"
 
-          go run .
+          ./zfcheckscores
 
       - name: Commit and push state (data persistence)
         run: |

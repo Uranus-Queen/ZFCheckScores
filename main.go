@@ -213,7 +213,7 @@ func fetchUserInfo(c *zfn.Client) (*userInfo, *zfn.GradeResult) {
 		if err != nil {
 			log.Printf("warn: user info attempt %d/5: %v", i, err)
 			lastUserInfoErr = err.Error()
-			zfn.Backoff(i, 10)
+			zfn.Backoff(i, 5)
 			continue
 		}
 		if r.Code == 1000 && r.Data != nil {
@@ -222,7 +222,7 @@ func fetchUserInfo(c *zfn.Client) (*userInfo, *zfn.GradeResult) {
 		}
 		log.Printf("warn: user info attempt %d/5: code=%d msg=%s", i, r.Code, r.Msg)
 		lastUserInfoErr = fmt.Sprintf("code=%d %s", r.Code, r.Msg)
-		zfn.Backoff(i, 10)
+		zfn.Backoff(i, 5)
 	}
 	if result == nil || result.Data == nil {
 		return &userInfo{}, nil
@@ -242,14 +242,14 @@ func retryGrade(c *zfn.Client, year, term int) (*zfn.GradeResult, error) {
 		gr, err := c.GetGrade(year, term)
 		if err != nil {
 			last = gr
-			zfn.Backoff(i, 10)
+			zfn.Backoff(i, 5)
 			continue
 		}
 		last = gr
 		if gr.Code == 1000 || gr.Code == 1005 {
 			return gr, nil
 		}
-		zfn.Backoff(i, 10)
+		zfn.Backoff(i, 5)
 	}
 	return last, nil
 }

@@ -24,7 +24,9 @@ go.work
 go.work.sum
 
 # ─── 运行时数据（程序自动生成）───
-data/
+# 注意：data/ 必须纳入版本控制，供 GitHub Actions 跨运行持久化
+# info.txt / grade.txt / old_grade.txt。若忽略它，每次运行 info.txt 为空，
+# IsFirstRun 永远为 true，会每 30 分钟重复推送首跑问候。
 *.log
 
 # ─── 本地密钥 / 环境变量（含 PASSWORD、TOKEN）───

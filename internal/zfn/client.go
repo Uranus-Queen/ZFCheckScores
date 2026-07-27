@@ -422,10 +422,18 @@ func (c *Client) GetUserInfo() (*UserInfoResult, error) {
 	if strings.TrimSpace(doc.Find("h5").Text()) == "用户登录" {
 		return &UserInfoResult{Code: 1006, Msg: "未登录或已过期，请重新登录"}, nil
 	}
+	// WAF / captcha challenge page (session rejected after login).
+	if doc.Find("input#yzm").Length() > 0 {
+		return &UserInfoResult{Code: 1001, Msg: "会话被 WAF 拦截（返回验证码页）"}, nil
+	}
 
 	var raw map[string]interface{}
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return &UserInfoResult{Code: 2333, Msg: "解析个人信息失败"}, nil
+		sample := strings.TrimSpace(string(body))
+		if len(sample) > 160 {
+			sample = sample[:160] + "..."
+		}
+		return &UserInfoResult{Code: 2333, Msg: fmt.Sprintf("解析个人信息失败（响应非 JSON）: %q", sample)}, nil
 	}
 	return &UserInfoResult{Code: 1000, Msg: "获取个人信息成功", Data: raw}, nil
 }

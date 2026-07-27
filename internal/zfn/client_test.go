@@ -1,10 +1,16 @@
 package zfn
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/base64"
 	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -216,5 +222,99 @@ func TestGetUserInfo_BackfillCollegeInfo(t *testing.T) {
 	}
 	if res.Data["class_name"] != "金属2301" {
 		t.Fatalf("expected class backfilled, got %v", res.Data["class_name"])
+	}
+}
+
+// TestResolveURLKeepsContextPath ensures resolveURL preserves any context
+// path carried by the base URL (e.g. /jwglxt) instead of dropping it. This is
+// the fix for njtech deployments where the whole app lives under /jwglxt.
+func TestResolveURLKeepsContextPath(t *testing.T) {
+	c, _ := NewClient("https://example.com/jwglxt", 5)
+	if got := c.resolveURL("/xtgl/login_slogin.html"); got != "https://example.com/jwglxt/xtgl/login_slogin.html" {
+		t.Fatalf("resolveURL with context = %q, want https://example.com/jwglxt/xtgl/login_slogin.html", got)
+	}
+	c2, _ := NewClient("https://example.com", 5)
+	if got := c2.resolveURL("/xtgl/login_slogin.html"); got != "https://example.com/xtgl/login_slogin.html" {
+		t.Fatalf("resolveURL root = %q, want https://example.com/xtgl/login_slogin.html", got)
+	}
+}
+
+// TestWithContextPath verifies the context-path helper is idempotent and
+// correctly appends /jwglxt.
+func TestWithContextPath(t *testing.T) {
+	u, _ := url.Parse("https://example.com")
+	if got := withContextPath(u, "jwglxt").Path; got != "/jwglxt/" {
+		t.Fatalf("path = %q, want /jwglxt/", got)
+	}
+	u2, _ := url.Parse("https://example.com/jwglxt/")
+	if got := withContextPath(u2, "jwglxt").Path; got != "/jwglxt/" {
+		t.Fatalf("idempotent path = %q, want /jwglxt/", got)
+	}
+}
+
+// TestLoginContextPathFallback simulates njtech: requests WITHOUT the /jwglxt
+// context path return the "系统维护页面" (HTTP 404), while the real endpoints
+// live under /jwglxt. The client must detect the maintenance page and retry
+// with /jwglxt appended so that a base URL without the context path still works.
+func TestLoginContextPathFallback(t *testing.T) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod := base64.StdEncoding.EncodeToString(priv.N.Bytes())
+	exp := base64.StdEncoding.EncodeToString(big.NewInt(int64(priv.E)).Bytes())
+
+	var mu sync.Mutex
+	var paths []string
+	record := func(p string) {
+		mu.Lock()
+		paths = append(paths, p)
+		mu.Unlock()
+	}
+
+	mux := http.NewServeMux()
+	// Catch-all: missing context path → 正方 "系统维护页面".
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		record(r.URL.Path)
+		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+		w.WriteHeader(404)
+		fmt.Fprint(w, `<!DOCTYPE html><html><head><title>系统维护页面</title><link rel="stylesheet" href="/jwglxt/css/animationException.css"></head></html>`)
+	})
+	// Real login page (GET) + login handler (POST) under /jwglxt.
+	mux.HandleFunc("/jwglxt/xtgl/login_slogin.html", func(w http.ResponseWriter, r *http.Request) {
+		record(r.URL.Path)
+		w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+		if r.Method == http.MethodPost {
+			// No p#tips → login success.
+			fmt.Fprint(w, `<html><body></body></html>`)
+			return
+		}
+		fmt.Fprint(w, `<html><body><input id="csrftoken" value="tok"></body></html>`)
+	})
+	mux.HandleFunc("/jwglxt/xtgl/login_getPublicKey.html", func(w http.ResponseWriter, r *http.Request) {
+		record(r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"modulus":%q,"exponent":%q}`, mod, exp)
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	// Base URL WITHOUT the context path, as the user's URL secret currently is.
+	c, _ := NewClient(srv.URL, 5)
+	res := c.Login("student", "secret")
+	if res.Code != 1000 {
+		t.Fatalf("login code=%d msg=%s", res.Code, res.Msg)
+	}
+	if !strings.Contains(c.baseURL.Path, "/jwglxt") {
+		t.Fatalf("base URL path not updated after fallback: %q", c.baseURL.Path)
+	}
+	// The first attempt must have hit the root context (maintenance) and the
+	// retry must have reached /jwglxt.
+	if len(paths) < 2 || !strings.Contains(paths[0], "/xtgl/login_slogin.html") || paths[0] != "/xtgl/login_slogin.html" {
+		t.Fatalf("unexpected first request path: %v", paths)
+	}
+	if paths[1] != "/jwglxt/xtgl/login_slogin.html" {
+		t.Fatalf("retry did not reach /jwglxt: %v", paths)
 	}
 }

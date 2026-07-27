@@ -254,8 +254,9 @@ func TestWithContextPath(t *testing.T) {
 
 // TestLoginContextPathFallback simulates njtech: requests WITHOUT the /jwglxt
 // context path return the "系统维护页面" (HTTP 404), while the real endpoints
-// live under /jwglxt. The client must detect the maintenance page and retry
-// with /jwglxt appended so that a base URL without the context path still works.
+// live under /jwglxt. The client must PREFER the /jwglxt context path on the
+// first attempt, so a base URL without the context path still works without
+// wasting a root-path 404 round-trip.
 func TestLoginContextPathFallback(t *testing.T) {
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -309,12 +310,14 @@ func TestLoginContextPathFallback(t *testing.T) {
 	if !strings.Contains(c.baseURL.Path, "/jwglxt") {
 		t.Fatalf("base URL path not updated after fallback: %q", c.baseURL.Path)
 	}
-	// The first attempt must have hit the root context (maintenance) and the
-	// retry must have reached /jwglxt.
-	if len(paths) < 2 || !strings.Contains(paths[0], "/xtgl/login_slogin.html") || paths[0] != "/xtgl/login_slogin.html" {
-		t.Fatalf("unexpected first request path: %v", paths)
+	// The first request must already target /jwglxt — no wasted root-path probe.
+	if len(paths) < 1 || !strings.HasPrefix(paths[0], "/jwglxt/xtgl/login_slogin.html") {
+		t.Fatalf("expected first request to prefer /jwglxt, got %v", paths)
 	}
-	if paths[1] != "/jwglxt/xtgl/login_slogin.html" {
-		t.Fatalf("retry did not reach /jwglxt: %v", paths)
+	// A base URL without the context path must NOT probe the bare root path first.
+	for _, p := range paths {
+		if p == "/xtgl/login_slogin.html" {
+			t.Fatalf("unexpected root-path probe; should prefer /jwglxt: %v", paths)
+		}
 	}
 }

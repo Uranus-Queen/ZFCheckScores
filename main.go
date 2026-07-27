@@ -18,12 +18,18 @@ import (
 
 const (
 	pushTitle = "正方教务管理系统成绩推送"
-	copyright = "Copyright © 2024 NianBroken. All rights reserved."
+	copyright = "Copyright © 2026 IKAROS. All rights reserved."
 	divider   = "══════════════════════════"
 	subdiv    = "──────────────────────────"
 
 	firstRunMsg = "你的程序运行成功\n从现在开始,程序将会每隔 30 分钟自动检测一次成绩是否有更新\n若有更新,将通过微信推送及时通知你"
 )
+
+// The Liquid Glass CSS, JS runtime, and the HTML template now live in
+// internal/push/templates and are embedded + rendered by internal/push/render.go
+// (RenderGradeCard). This keeps the presentation layer out of the main logic
+// with zero new dependencies. User data is HTML-escaped by html/template; the
+// CSS/JS are injected as trusted embedded assets.
 
 func main() {
 	cfg := config.Load()
@@ -103,8 +109,21 @@ func main() {
 
 	// ── 9. Build push pages ──
 	courses := gradeList(curGrades)
+	pending := pendingCourses(selData, curGrades)
 	fullPage := buildPage("📊 成绩已更新", ui.Name, ui.SID, sem.Label(), courses, gpa, pctGPA, selText, cfg)
-	firstPage := firstRunMsg + "\n\n" + fullPage
+	fullHTML, err := push.RenderGradeCard(push.GradeCardData{
+		Title:     pushTitle,
+		SemLabel:  sem.Label(),
+		Courses:   courses,
+		GPA:       gpa,
+		PctGPA:    pctGPA,
+		Pending:   pending,
+		FirstRun:  firstRun,
+		Copyright: copyright,
+	})
+	if err != nil {
+		log.Fatalf("render grade card: %v", err)
+	}
 
 	// ── 10. Decision ──
 	gc, _ := st.GradeContent()
@@ -118,10 +137,10 @@ func main() {
 		logLines = append(logLines, "获取成绩时出错，运行失败")
 	case firstRun:
 		logLines = append(logLines, firstRunMsg)
-		logLines = append(logLines, pushAndReport(cfg, pushTitle, firstPage))
+		logLines = append(logLines, pushAndReport(cfg, pushTitle, fullHTML))
 	case gc != ogc || cfg.ForcePush:
 		logLines = append(logLines, "成绩已更新")
-		logLines = append(logLines, pushAndReport(cfg, pushTitle, fullPage))
+		logLines = append(logLines, pushAndReport(cfg, pushTitle, fullHTML))
 	default:
 		logLines = append(logLines, "成绩未更新")
 		if last := lastSubmission(curGrades); last != "" {
@@ -141,6 +160,8 @@ func main() {
 	if runLog == "" {
 		return
 	}
+	// Plain-text card for local / console readability (Showdoc receives HTML).
+	fmt.Println(fullPage)
 	fmt.Println(runLog)
 	if cfg.GitHubActions && cfg.StepSummary != "" {
 		writeGitHubSummary(runLog, cfg)
@@ -231,30 +252,36 @@ func rawGradeText(gd *zfn.GradeData) string {
 	return sb.String()
 }
 
-// gradeList returns compact grade lines for the push page (current semester only).
-func gradeList(gd *zfn.GradeData) []gradeLine {
+// gradeList returns compact grade rows for the push page (current semester only).
+// It precomputes the display meta line and the Liquid Glass score class so the
+// template stays free of presentation logic.
+func gradeList(gd *zfn.GradeData) []push.Course {
 	if gd == nil || len(gd.Courses) == 0 {
 		return nil
 	}
-	var lines []gradeLine
+	var lines []push.Course
 	for _, c := range sortCourses(gd.Courses) {
 		title := normalizeBrackets(c.Title)
 		gradeStr := c.Grade
 		if _, err := strconv.ParseFloat(c.Grade, 64); err != nil {
 			gradeStr = c.Grade + " (" + c.PercentageGrades + ")"
 		}
-		lines = append(lines, gradeLine{
-			Course:  title,
-			Grade:   gradeStr,
-			Teacher: c.Teacher,
-			Time:    shortTime(c.SubmissionTime),
+		meta := c.Teacher
+		if meta != "" && c.SubmissionTime != "" {
+			meta = meta + " · " + shortTime(c.SubmissionTime)
+		} else if c.SubmissionTime != "" {
+			meta = shortTime(c.SubmissionTime)
+		}
+		lines = append(lines, push.Course{
+			Course:     title,
+			Grade:      gradeStr,
+			Teacher:    c.Teacher,
+			Time:       shortTime(c.SubmissionTime),
+			Meta:       meta,
+			ScoreClass: scoreClass(gradeStr),
 		})
 	}
 	return lines
-}
-
-type gradeLine struct {
-	Course, Grade, Teacher, Time string
 }
 
 // shortTime extracts "MM-DD HH:MM" from a timestamp like "2024-01-15 10:30:00".
@@ -319,11 +346,11 @@ func computeGPA(gd *zfn.GradeData) (gpa, pct string) {
 
 // ────────────────────────── selected courses ────────────────────────────────
 
-// selectedCoursesText returns a list of enrolled courses that have no grade yet
-// (i.e. courses in selData but not in curGrades). Returns "" if none.
-func selectedCoursesText(selData *zfn.SelectedCoursesData, curGrades *zfn.GradeData) string {
+// pendingCourses returns the enrolled courses that have no grade yet
+// (i.e. courses in selData but not in curGrades). Returns nil if none.
+func pendingCourses(selData *zfn.SelectedCoursesData, curGrades *zfn.GradeData) []push.PendingCourse {
 	if selData == nil || len(selData.Courses) == 0 {
-		return ""
+		return nil
 	}
 	// Build set of current-semester class IDs that already have a grade.
 	graded := make(map[string]bool, len(curGrades.Courses))
@@ -332,22 +359,54 @@ func selectedCoursesText(selData *zfn.SelectedCoursesData, curGrades *zfn.GradeD
 			graded[c.ClassID] = true
 		}
 	}
-	var names []string
+	var out []push.PendingCourse
 	for _, cour := range selData.Courses {
 		if graded[cour.ClassID] {
 			continue
 		}
-		names = append(names, "  · "+normalizeBrackets(cour.Title)+"  "+cour.Teacher)
+		out = append(out, push.PendingCourse{Name: normalizeBrackets(cour.Title), Teacher: cour.Teacher})
 	}
-	if len(names) == 0 {
+	return out
+}
+
+// selectedCoursesText returns a plain-text list of enrolled courses that have
+// no grade yet. Returns "" if none.
+func selectedCoursesText(selData *zfn.SelectedCoursesData, curGrades *zfn.GradeData) string {
+	pc := pendingCourses(selData, curGrades)
+	if len(pc) == 0 {
 		return ""
+	}
+	names := make([]string, 0, len(pc))
+	for _, c := range pc {
+		names = append(names, "  · "+c.Name+"  "+c.Teacher)
 	}
 	return subdiv + "\n  未公布成绩\n" + strings.Join(names, "\n")
 }
 
+// scoreClass maps a grade string to a Liquid Glass CSS class:
+//   "g"   → green (good), "fail" → red (failing), "" → default white.
+func scoreClass(g string) string {
+	if f, err := strconv.ParseFloat(g, 64); err == nil {
+		if f < 60 {
+			return "fail"
+		}
+		if f >= 85 {
+			return "g"
+		}
+		return ""
+	}
+	// Non-numeric grades: failure keywords → red, otherwise treat as passed.
+	switch g {
+	case "不及格", "挂科", "缺考", "作弊", "违纪", "缓考", "弃考", "差":
+		return "fail"
+	default:
+		return "g"
+	}
+}
+
 // ─────────────────────────── page builder ───────────────────────────────────
 
-func buildPage(header, name, sid, semLabel string, courses []gradeLine, gpa, pctGPA, selText string, cfg *config.Config) string {
+func buildPage(header, name, sid, semLabel string, courses []push.Course, gpa, pctGPA, selText string, cfg *config.Config) string {
 	var b strings.Builder
 
 	b.WriteString(divider + "\n")
@@ -383,6 +442,11 @@ func buildPage(header, name, sid, semLabel string, courses []gradeLine, gpa, pct
 
 	return b.String()
 }
+
+// buildPageHTML was replaced by push.RenderGradeCard, which renders the same
+// Liquid Glass layout from internal/push/templates via html/template. User data
+// is auto-escaped (XSS-safe); CSS/JS are embedded as trusted assets. See
+// internal/push/render.go.
 
 // padRight right-pads s with spaces to the given visual width.
 // CJK / full-width chars count as 2 columns.

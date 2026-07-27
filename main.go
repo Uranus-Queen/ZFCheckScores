@@ -132,7 +132,11 @@ func main() {
 
 	switch {
 	case ui.Name == "":
-		logLines = append(logLines, "个人信息为空，运行失败")
+		reason := "个人信息为空，运行失败"
+		if lastUserInfoErr != "" {
+			reason += "（最后一次错误: " + lastUserInfoErr + "）"
+		}
+		logLines = append(logLines, reason)
 	case gradeErr:
 		logLines = append(logLines, "获取成绩时出错，运行失败")
 	case firstRun:
@@ -183,6 +187,11 @@ type userInfo struct {
 	Name, SID, Class string
 }
 
+// lastUserInfoErr keeps the最后一次个人信息获取失败的原因, surfaced in the run
+// log so the GitHub Actions summary shows *why* instead of a bare
+// "个人信息为空" (e.g. WAF challenge, session expiry, gateway error).
+var lastUserInfoErr string
+
 // ────────────────────────────── fetch helpers ───────────────────────────────
 
 func fetchUserInfo(c *zfn.Client) (*userInfo, *zfn.GradeResult) {
@@ -190,6 +199,8 @@ func fetchUserInfo(c *zfn.Client) (*userInfo, *zfn.GradeResult) {
 	for i := 1; i <= 5; i++ {
 		r, err := c.GetUserInfo()
 		if err != nil {
+			log.Printf("warn: user info attempt %d/5: %v", i, err)
+			lastUserInfoErr = err.Error()
 			zfn.Backoff(i, 10)
 			continue
 		}
@@ -197,6 +208,8 @@ func fetchUserInfo(c *zfn.Client) (*userInfo, *zfn.GradeResult) {
 			result = r
 			break
 		}
+		log.Printf("warn: user info attempt %d/5: code=%d msg=%s", i, r.Code, r.Msg)
+		lastUserInfoErr = fmt.Sprintf("code=%d %s", r.Code, r.Msg)
 		zfn.Backoff(i, 10)
 	}
 	if result == nil || result.Data == nil {

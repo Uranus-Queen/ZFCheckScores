@@ -325,15 +325,21 @@ type SelectedCoursesData struct {
 // page), we retry once with /jwglxt appended so that a base URL without the
 // context path still works out of the box.
 func (c *Client) Login(username, password string) *LoginResult {
-	// 正方（如 njtech）整体部署在 /jwglxt 上下文路径下。优先尝试带上下文路径
-	// 的 URL：命中即成功，避免先请求错误路径（返回 404 系统维护页）再重试的
-	// 一次额外 RTT，从而缩短整体耗时。
 	jwglxt := withContextPath(c.baseURL, "jwglxt")
+	// 1) 优先 /jwglxt（njtech 部署于此，省去根路径 404 RTT）。
 	if res := c.attemptLogin(jwglxt, username, password); res.Code == 1000 {
 		c.baseURL = jwglxt
 		return res
 	}
-	// 回退到原始 base URL（针对未部署在 /jwglxt 下的学校）。
+	// 2) 回退到原始 base（未部署在 /jwglxt 下的学校）。
+	if res := c.attemptLogin(c.baseURL, username, password); res.Code == 1000 {
+		return res
+	}
+	// 3) 两者皆失败，再各试一次以应对 正方瞬时维护页（如 GitHub IP 偶发被拦）。
+	if res := c.attemptLogin(jwglxt, username, password); res.Code == 1000 {
+		c.baseURL = jwglxt
+		return res
+	}
 	return c.attemptLogin(c.baseURL, username, password)
 }
 

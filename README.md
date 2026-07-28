@@ -8,7 +8,9 @@
 
 - **Go 实现**，编译为单二进制，CI 中无需安装依赖
 - 每 30 分钟检测一次，仅在本学期成绩变化时推送
-- 通知走 **Server酱**（仅摘要 + 链接），完整毛玻璃卡片自托管在 **Cloudflare Pages**
+- 通知走 **Server酱**（仅摘要 + 链接），完整成绩页自托管在 **Cloudflare Pages**
+- 成绩页是 **Hono + TypeScript + Tailwind（Vite）** 单页应用：毛玻璃风格，支持搜索、排序、筛选、分数分布图
+- **端到端加密**：仓库里只有 AES-256-GCM 密文，解密只发生在浏览器（密钥在链接 `#` 片段）
 - 支持 **Cookie 登录**（复用浏览器会话，绕过验证码）
 
 ## 测试环境
@@ -22,7 +24,7 @@
 - 成绩按提交时间排序，标注提交人
 - 自动计算 GPA 和百分制 GPA
 - 显示未公布成绩的课程
-- 推送页面美观简洁，手机浏览友好
+- 自托管成绩页：毛玻璃暗色风格，统计卡片、分数分布、课程搜索 / 排序 / 筛选，手机浏览友好
 - 支持 Cookie 登录，绕过教务系统验证码
 
 ## 使用方法
@@ -68,15 +70,19 @@
 
 ### 6. 部署成绩页到 Cloudflare Pages（自托管）
 
-成绩卡片是完整的 HTML 文档，由 Cloudflare Pages 通过 **Git 集成**自动部署——无需在仓库里放任何 API 令牌。首次运行后真实卡片以 **AES 加密**形式写到 `dist/index.html`（解密页，密钥在链接 `#<GRADES_KEY>` 片段），链接形如 `https://<域名>/#<GRADES_KEY>`。
+成绩页是 `web/` 下的 **Hono + TypeScript + Tailwind（Vite）单页应用**，由 Cloudflare Pages 通过 **Git 集成**自动构建部署——无需在仓库里放任何 API 令牌。Actions 每次成绩更新时把 **AES-256-GCM 加密**后的成绩 JSON 写入 `web/public/payload.json` 并 push，Cloudflare 随之重新部署；浏览器端用链接 `#` 片段里的密钥本地解密渲染。
 
 1. **连接仓库**：Cloudflare 控制台 → `Workers & Pages` → `Create` → `Pages` → `Connect to Git` → 选择本仓库。
-2. **构建设置**：`Build command` 留空，`Build output directory` 填 `dist`，`Root directory` 留空（即仓库根）。保存后 Cloudflare 会在每次 push 到 `main` 时自动部署。
+2. **构建设置**：
+   - `Root directory` 填 **`web`**
+   - `Build command` 填 **`npm run build`**
+   - `Build output directory` 填 **`dist`**（即 `web/dist`）
+   - 框架预设选 `None`（或 `Vite`），环境变量不需要填。保存后每次 push 到 `main` 自动构建部署。
 3. **自定义域名**（成对设置 `GRADES_DOMAIN` + `GRADES_KEY`）：Pages 项目 → `Custom domains` → 添加你的域名（如 `grades.example.com`），按提示在域名服务商处加一条 **CNAME** 记录指向 `*.pages.dev` 提供的目标。然后把域名填到 Secrets 的 `GRADES_DOMAIN`，并设置一个任意长随机串作为 `GRADES_KEY`。
-4. **访问方式（免登录、端到端加密）**：成绩卡片在仓库里以 **AES-256-GCM 密文**形式写到 `dist/index.html`（解密页），由 Cloudflare 部署在 `https://<域名>/`。解密密钥只存在于通知链接的片段里：`https://<域名>/#<GRADES_KEY>`。点开链接后，浏览器从 `#` 片段取出密钥、本地解密并渲染——**无需任何登录步骤**，且片段**不会发到 Cloudflare 服务器、也不会进仓库**，所以即便仓库是公开的，他人读到的也只是密文，看不到成绩明文。「链接即凭证」，请只发给自己，不要公开。
-   > 为什么不用「密码查询参数 `?key=` 只做访问校验」？那种做法页码里的 JS 只是校验口令、明文仍在页面里，看源码即可绕过。这里是**端到端加密**：明文只在浏览器用密钥解出，仓库里只有密文，安全得多。
+4. **访问方式（免登录、端到端加密）**：成绩数据在仓库里以 **AES-256-GCM 密文**形式存于 `web/public/payload.json`。解密密钥只存在于通知链接的片段里：`https://<域名>/#<GRADES_KEY>`。点开链接后，浏览器从 `#` 片段取出密钥、本地解密并渲染——**无需任何登录步骤**，且片段**不会发到 Cloudflare 服务器、也不会进仓库**，所以即便仓库是公开的，他人读到的也只是密文。「链接即凭证」，请只发给自己，不要公开。没带片段直接打开页面时，会显示密钥输入框（密钥同样只留在浏览器）。
+   > 为什么不用「密码查询参数 `?key=` 只做访问校验」？那种做法 JS 只是校验口令、明文仍在页面里，看源码即可绕过。这里是**端到端加密**：明文只在浏览器用密钥解出，仓库里只有密文，安全得多。
 
-> 首跑前 `dist/index.html` 是占位页（"成绩页生成中"），首次成功运行 Actions 后会被「加密解密页」覆盖并部署：页面内含密文，浏览器用 `#<密钥>` 解密显示。`dist/_headers` 已设 `/*` 为 `no-cache`，保证成绩更新即时可见。
+> 首跑前 `web/public/payload.json` 是占位信封（页面显示"成绩页生成中"），首次成功运行 Actions 后被加密信封覆盖并自动部署。`web/public/_headers` 已将 `payload.json` 设为 `no-store`，保证成绩更新即时可见。页面还带一个 Hono API（`/api/health`、`/api/meta`，Cloudflare Pages Functions），只暴露"是否有数据、何时更新"等非敏感元信息。
 
 ## 程序逻辑
 
@@ -84,7 +90,7 @@
 2. 判定当前学期（已选课程优先 → 日历兜底）
 3. 抓取本学期成绩，MD5 哈希写入 `data/grade.txt`
 4. 与上一次快照 `data/old_grade.txt` 比对
-5. 成绩变化或首次运行时，通过 **Server酱** 推送微信通知（摘要 + 自托管页链接），并把完整毛玻璃卡片 **AES 加密**后写入 `dist/index.html`（解密页，密钥在链接 `#<GRADES_KEY>` 片段），由 Cloudflare Pages 部署
+5. 成绩变化或首次运行时，通过 **Server酱** 推送微信通知（摘要 + 自托管页链接），并把结构化成绩 JSON **AES-256-GCM 加密**后写入 `web/public/payload.json`（密钥在链接 `#<GRADES_KEY>` 片段），由 Cloudflare Pages 随 `web/` SPA 一起构建部署
 
 ## 本地运行
 
@@ -97,6 +103,15 @@ go run .
 ```bash
 go build -ldflags="-s -w" -o zfcheckscores .
 URL=... USERNAME=... PASSWORD=... SERVERCHAN_SENDKEY=... GRADES_DOMAIN=grades.example.com GRADES_KEY=s3cr3t-9x2k ./zfcheckscores
+```
+
+成绩页前端（`web/`）本地开发：
+
+```bash
+cd web
+npm install
+npm run dev    # Vite 开发服务器（读取 public/payload.json）
+npm run build  # tsc 类型检查 + 产出 web/dist（与 Cloudflare 构建一致）
 ```
 
 ## 故障排查

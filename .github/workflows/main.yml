@@ -98,14 +98,16 @@ jobs:
             "filled, so the grade-update notification cannot be sent!"
             Whether_Secret_is_empty=true
           fi
-          # GRADES_DOMAIN 与 GRADES_KEY 必须成对出现：密钥决定成绩页 URL 路径
-          # （https://<域名>/<密钥>/），缺密钥会把成绩写到根路径（公开），缺域名则
-          # 通知里没有可点击的链接。两者都不填则视为「不启用自托管页」，允许通过。
+          # GRADES_DOMAIN 与 GRADES_KEY 必须成对出现：GRADES_KEY 是 AES-256-GCM
+          # 端到端加密密钥（通知链接形如 https://<域名>/#<密钥>，密钥只在 URL
+          # # 片段里，不上服务器、不进仓库），缺密钥会把成绩明文写进公开仓库的
+          # web/public/payload.json，缺域名则通知里没有可点击的链接。
+          # 两者都不填则视为「不启用自托管页」，允许通过。
           if [ -n "$GRADES_DOMAIN" ] || [ -n "$GRADES_KEY" ]; then
             if [ -z "$GRADES_DOMAIN" ] || [ -z "$GRADES_KEY" ]; then
               echo "GRADES_DOMAIN and GRADES_KEY must be set together!"
               echo "::error title=GRADES_DOMAIN / GRADES_KEY 不匹配!" \
-              "::自托管成绩页需要两者成对：GRADES_KEY 决定访问路径（免登录），" \
+              "::自托管成绩页需要两者成对：GRADES_KEY 是端到端加密密钥（免登录），" \
               "GRADES_DOMAIN 决定域名。请同时设置或同时留空。"
               Whether_Secret_is_empty=true
             fi

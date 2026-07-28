@@ -22,16 +22,17 @@ const (
 	copyright = "Copyright © 2026 IKAROS. All rights reserved."
 	divider   = "══════════════════════════"
 	subdiv    = "──────────────────────────"
-	siteDir   = "dist"
+	// 自托管成绩页的数据文件：web/ 是 Vite+TS+Tailwind SPA（Cloudflare Pages
+	// 构建部署），Go 侧只负责把加密后的成绩 JSON 信封写进它的静态资源目录。
+	sitePayload = "web/public/payload.json"
 
 	firstRunMsg = "你的程序运行成功\n从现在开始,程序将会每隔 30 分钟自动检测一次成绩是否有更新\n若有更新,将通过微信推送及时通知你"
 )
 
-// The Liquid Glass CSS, JS runtime, and the HTML template now live in
-// internal/push/templates and are embedded + rendered by internal/push/render.go
-// (RenderGradeCard). This keeps the presentation layer out of the main logic
-// with zero new dependencies. User data is HTML-escaped by html/template; the
-// CSS/JS are injected as trusted embedded assets.
+// The Liquid Glass presentation layer now lives in web/ (Vite + TypeScript +
+// Tailwind SPA on Cloudflare Pages). Go only produces the encrypted JSON
+// envelope (internal/push/payload.go) written to web/public/payload.json;
+// rendering, search/sort/filter, and decryption all happen in the browser.
 
 func main() {
 	cfg := config.Load()
@@ -122,19 +123,6 @@ func main() {
 	courses := gradeList(curGrades)
 	pending := pendingCourses(selDataCurrent, curGrades)
 	fullPage := buildPage("📊 成绩已更新", ui.Name, ui.SID, sem.Label(), courses, gpa, pctGPA, selText, cfg)
-	fullHTML, err := push.RenderGradeCard(push.GradeCardData{
-		Title:     pushTitle,
-		SemLabel:  sem.Label(),
-		Courses:   courses,
-		GPA:       gpa,
-		PctGPA:    pctGPA,
-		Pending:   pending,
-		FirstRun:  firstRun,
-		Copyright: copyright,
-	})
-	if err != nil {
-		log.Fatalf("render grade card: %v", err)
-	}
 
 	// ── 10. Decision ──
 	gc, _ := st.GradeContent()
@@ -151,14 +139,14 @@ func main() {
 	case firstRun:
 		logLines = append(logLines, firstRunMsg)
 		logLines = append(logLines, notify(cfg, title, desp, short))
-		if err := writeSite(siteDir, sitePage(cfg, fullHTML)); err != nil {
-			log.Printf("warn: write site: %v", err)
+		if err := writeSitePayload(cfg, sem.Label(), courses, pending, gpa, pctGPA, firstRun); err != nil {
+			log.Printf("warn: write site payload: %v", err)
 		}
 	case gc != ogc || cfg.ForcePush:
 		logLines = append(logLines, "成绩已更新")
 		logLines = append(logLines, notify(cfg, title, desp, short))
-		if err := writeSite(siteDir, sitePage(cfg, fullHTML)); err != nil {
-			log.Printf("warn: write site: %v", err)
+		if err := writeSitePayload(cfg, sem.Label(), courses, pending, gpa, pctGPA, firstRun); err != nil {
+			log.Printf("warn: write site payload: %v", err)
 		}
 	default:
 		logLines = append(logLines, "成绩未更新")
@@ -257,35 +245,60 @@ func buildNotify(cfg *config.Config, semLabel string, courses []push.Course, gpa
 	return
 }
 
-// sitePage returns the HTML to write for the self-hosted page. When GRADES_KEY
-// is set, the full glassmorphism card is AES-encrypted and wrapped in a
-// decrypter page whose key lives only in the URL fragment (#key) — so a public
-// repository stores only ciphertext and leaks nothing readable, while opening
-// the link needs no login. When GRADES_KEY is empty it falls back to the
-// plaintext card (with a warning) so local runs still work without the secret.
-func sitePage(cfg *config.Config, html string) string {
-	key := strings.TrimSpace(cfg.SiteKey)
-	if key == "" {
-		log.Printf("warn: GRADES_KEY 未设置，成绩页将明文写到 %s（公开可访问，建议设置 GRADES_KEY 启用端到端加密）", siteDir)
-		return html
+// buildSitePayload assembles the structured GradePayload consumed by the
+// web/ SPA (Vite + TypeScript + Tailwind, deployed on Cloudflare Pages).
+func buildSitePayload(cfg *config.Config, semLabel string, courses []push.Course, pending []push.PendingCourse, gpa, pctGPA string, firstRun bool) push.GradePayload {
+	ts := time.Now().Format("2006-01-02 15:04")
+	if cfg.BeijingTime != "" {
+		ts = cfg.BeijingTime
 	}
-	enc, err := push.EncryptAndWrap(html, key)
-	if err != nil {
-		log.Printf("warn: encrypt site page: %v（回退明文）", err)
-		return html
+	pc := make([]push.PayloadCourse, 0, len(courses))
+	for _, c := range courses {
+		pc = append(pc, push.PayloadCourse{
+			Course:     c.Course,
+			Grade:      c.Grade,
+			Teacher:    c.Teacher,
+			Time:       c.Time,
+			ScoreClass: c.ScoreClass,
+		})
 	}
-	return enc
+	pp := make([]push.PayloadPending, 0, len(pending))
+	for _, p := range pending {
+		pp = append(pp, push.PayloadPending{Name: p.Name, Teacher: p.Teacher})
+	}
+	return push.GradePayload{
+		Semester:  semLabel,
+		GPA:       gpa,
+		PctGPA:    pctGPA,
+		FirstRun:  firstRun,
+		UpdatedAt: ts,
+		Courses:   pc,
+		Pending:   pp,
+		Copyright: copyright,
+	}
 }
 
-// writeSite writes the self-contained glassmorphism HTML page into dir as
-// index.html, so Cloudflare Pages (Git integration) deploys it on the next
-// push. Only called when we actually push (first run / grade change / force),
-// so unchanged runs don't churn the deployed site.
-func writeSite(dir, html string) error {
-	if err := os.MkdirAll(dir, 0755); err != nil {
+// writeSitePayload writes the (encrypted) JSON envelope to web/public/
+// payload.json, so Cloudflare Pages deploys it with the SPA on the next push.
+// When GRADES_KEY is set the repo stores only AES-256-GCM ciphertext — the
+// decryption key travels in the URL fragment (#key) and never reaches the
+// server or the repo. When GRADES_KEY is empty the envelope carries plaintext
+// (the SPA shows a public-visibility warning) so local runs still work.
+// Only called when we actually push (first run / grade change / force), so
+// unchanged runs don't churn the deployed site.
+func writeSitePayload(cfg *config.Config, semLabel string, courses []push.Course, pending []push.PendingCourse, gpa, pctGPA string, firstRun bool) error {
+	key := strings.TrimSpace(cfg.SiteKey)
+	if key == "" {
+		log.Printf("warn: GRADES_KEY 未设置，成绩数据将明文写到 %s（公开可访问，建议设置 GRADES_KEY 启用端到端加密）", sitePayload)
+	}
+	env, err := push.BuildEnvelope(buildSitePayload(cfg, semLabel, courses, pending, gpa, pctGPA, firstRun), key)
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "index.html"), []byte(html), 0644)
+	if err := os.MkdirAll(filepath.Dir(sitePayload), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(sitePayload, []byte(env), 0644)
 }
 
 // ──────────────────────────── failure diagnosis ────────────────────────────

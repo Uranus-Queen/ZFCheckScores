@@ -18,6 +18,14 @@ coverage.txt
 coverage.out
 profile.out
 
+# ─── web/ 前端（Vite + TS + Tailwind，Cloudflare Pages 构建）───
+# 注意：web/public/payload.json 必须纳入版本控制（加密成绩信封，
+# Actions 写入 → push → Cloudflare Pages 随 SPA 一起部署）。
+web/node_modules/
+web/dist/
+web/.wrangler/
+web/*.tsbuildinfo
+
 # ─── Go 模块 / 工作区 ───
 /vendor/               # 当前使用 Go modules（无 vendor）；若误生成则忽略
 go.work

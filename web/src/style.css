@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+/* ── Liquid Glass 主题（与原 grade_card.html 同源配色）───────────────── */
+
+:root {
+  --c-green: #30d158;
+  --c-red: #ff453a;
+  --c-blue: #0a84ff;
+  --c-text-2nd: rgba(235, 235, 245, 0.6);
+}
+
+html {
+  background: #000;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 15px;
+  line-height: 1.47;
+  letter-spacing: -0.01em;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 固定全屏背景层：暗色径向渐变 + 底部辉光（不随滚动，杜绝 iOS 露底） */
+.bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: #000;
+  background-image:
+    radial-gradient(ellipse 60% 50% at 15% 5%, rgba(10, 132, 255, 0.1), transparent 60%),
+    radial-gradient(ellipse 50% 40% at 85% 15%, rgba(255, 55, 95, 0.05), transparent 60%),
+    radial-gradient(ellipse 70% 50% at 50% 95%, rgba(191, 90, 242, 0.05), transparent 60%),
+    radial-gradient(ellipse 40% 30% at 90% 70%, rgba(48, 209, 88, 0.04), transparent 60%),
+    radial-gradient(ellipse 80% 35% at 50% 100%, rgba(10, 132, 255, 0.07), transparent 70%);
+  background-repeat: no-repeat;
+}
+
+/* 毛玻璃卡片 */
+.glass {
+  position: relative;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 8px 32px rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(40px) saturate(160%);
+  backdrop-filter: blur(40px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass--sm {
+  border-radius: 16px;
+}
+
+/* 分数配色（与 Go 侧 scoreClass 对齐：g / 空 / fail） */
+.score-g {
+  color: var(--c-green);
+}
+.score-fail {
+  color: var(--c-red);
+}
+
+/* 控件（搜索框 / 下拉 / 筛选 chips） */
+.ctl {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-radius: 12px;
+  outline: none;
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+.ctl::placeholder {
+  color: rgba(235, 235, 245, 0.35);
+}
+.ctl:focus {
+  border-color: rgba(10, 132, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.18);
+}
+select.ctl option {
+  background: #1c1c1e;
+  color: #fff;
+}
+
+.chip {
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--c-text-2nd);
+  transition: all 0.18s ease;
+  cursor: pointer;
+  user-select: none;
+}
+.chip--on {
+  background: rgba(10, 132, 255, 0.22);
+  border-color: rgba(10, 132, 255, 0.5);
+  color: #fff;
+}
+
+/* 分布条 */
+.bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 入场动画 */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.rise {
+  animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise {
+    animation: none;
+  }
+  .bar > i {
+    transition: none;
+  }
+}

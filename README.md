@@ -4,10 +4,11 @@
 
 ## 简介
 
-自动检测正方教务系统成绩更新，通过微信实时推送通知。
+自动检测正方教务系统成绩更新，通过微信实时推送通知，并把完整成绩卡片托管到 Cloudflare Pages 自托管页面。
 
 - **Go 实现**，编译为单二进制，CI 中无需安装依赖
 - 每 30 分钟检测一次，仅在本学期成绩变化时推送
+- 通知走 **Server酱**（仅摘要 + 链接），完整毛玻璃卡片自托管在 **Cloudflare Pages**
 - 支持 **Cookie 登录**（复用浏览器会话，绕过验证码）
 
 ## 测试环境
@@ -38,13 +39,14 @@
 
 `Settings` → `Secrets and variables` → `Actions` → `Secrets` → `Repository secrets`
 
-| Name     | 例子                                | 说明                              |
-| -------- | ----------------------------------- | --------------------------------- |
-| URL      | https://jwgl.njtech.edu.cn/jwglxt   | 教务系统地址（建议带 `/jwglxt` 上下文路径）|
-| USERNAME | 2023210333027                       | 学号                              |
-| PASSWORD | Y3xhaCkb5PZ4                        | 密码                              |
-| TOKEN    | J65KWMBfyDh3YPLpcvm8                | [Showdoc push token]              |
-| COOKIES  | `{"JSESSIONID":"...","route":"..."}` | **可选**。浏览器 Cookie，跳过验证码 |
+| Name               | 例子                                | 说明                              |
+| ------------------ | ----------------------------------- | --------------------------------- |
+| URL                | https://jwgl.njtech.edu.cn/jwglxt   | 教务系统地址（建议带 `/jwglxt` 上下文路径）|
+| USERNAME           | 2023210333027                       | 学号                              |
+| PASSWORD           | Y3xhaCkb5PZ4                        | 密码                              |
+| SERVERCHAN_SENDKEY | SCT386139Txxxxxxxxxxxxxxxxxxxxxxxxx | [Server酱 SendKey]，成绩更新通知。**必填**（替代原 Showdoc）|
+| GRADES_DOMAIN      | grades.example.com                  | **可选**。自托管成绩页的自定义域名，通知里的「查看完整卡片」链接指向 `https://<该域名>/`；留空则通知不含链接 |
+| COOKIES            | `{"JSESSIONID":"...","route":"..."}` | **可选**。浏览器 Cookie，跳过验证码 |
 
 ### Cookie 登录
 
@@ -63,13 +65,25 @@
 
 `Actions` → `CheckScores` → `Run workflow`，之后每 30 分钟自动运行。
 
+### 6. 部署成绩页到 Cloudflare Pages（自托管）
+
+成绩卡片是完整的 HTML 文档（`dist/index.html`），由 Cloudflare Pages 通过 **Git 集成**自动部署——无需在仓库里放任何 API 令牌。
+
+1. **连接仓库**：Cloudflare 控制台 → `Workers & Pages` → `Create` → `Pages` → `Connect to Git` → 选择本仓库。
+2. **构建设置**：`Build command` 留空，`Build output directory` 填 `dist`，`Root directory` 留空（即仓库根）。保存后 Cloudflare 会在每次 push 到 `main` 时自动部署。
+3. **自定义域名**（可选但推荐）：Pages 项目 → `Custom domains` → 添加你的域名（如 `grades.example.com`），按提示在域名服务商处加一条 **CNAME** 记录指向 `*.pages.dev` 提供的目标。
+4. **访问保护**（推荐）：成绩含真实数据，务必在 `Zero Trust` → `Access` → `Applications` → `Add an application` → `Self-hosted`，把该域名纳入，**Login method 选 Email 验证码（OTP）**。这样只有你的邮箱能打开成绩页；通知里的链接会先跳到登录页再显示卡片。
+5. **Secret `GRADES_DOMAIN`**：把自定义域名填到仓库 Secrets 的 `GRADES_DOMAIN`，Server酱通知里的「查看完整卡片」链接才会指向它；留空则通知仅含摘要。
+
+> 首跑前 `dist/index.html` 是占位页（"成绩页生成中"），首次成功运行 Actions 后会被真实卡片覆盖并部署。`dist/_headers` 已设 `index.html` 为 `no-cache`，保证成绩更新即时可见。
+
 ## 程序逻辑
 
 1. 登录教务系统（Cookie 优先 → 账号密码 RSA 加密）
 2. 判定当前学期（已选课程优先 → 日历兜底）
 3. 抓取本学期成绩，MD5 哈希写入 `data/grade.txt`
 4. 与上一次快照 `data/old_grade.txt` 比对
-5. 成绩变化或首次运行时，通过 Showdoc 推送微信通知
+5. 成绩变化或首次运行时，通过 **Server酱** 推送微信通知（摘要 + 自托管页链接），并把完整毛玻璃卡片写入 `dist/index.html` 由 Cloudflare Pages 部署
 
 ## 本地运行
 
@@ -81,7 +95,7 @@ go run .
 
 ```bash
 go build -ldflags="-s -w" -o zfcheckscores .
-URL=... USERNAME=... PASSWORD=... TOKEN=... ./zfcheckscores
+URL=... USERNAME=... PASSWORD=... SERVERCHAN_SENDKEY=... GRADES_DOMAIN=grades.example.com ./zfcheckscores
 ```
 
 ## 故障排查

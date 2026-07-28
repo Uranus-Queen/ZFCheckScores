@@ -122,7 +122,7 @@ func TestBuildNotify(t *testing.T) {
 	if !strings.Contains(desp, "本学期 **2** 门已出成绩") {
 		t.Errorf("desp missing course count: %q", desp)
 	}
-	if !strings.Contains(desp, "https://grades.example.com/s3cr3t/") {
+	if !strings.Contains(desp, "https://grades.example.com/#s3cr3t") {
 		t.Errorf("desp missing keyed deep link: %q", desp)
 	}
 	if short != "正方教务成绩更新 · 本学期2门 · GPA3.45" {
@@ -132,7 +132,7 @@ func TestBuildNotify(t *testing.T) {
 	// Domain + key given with scheme + trailing slash must still normalize.
 	cfg3 := &config.Config{SiteDomain: "https://grades.example.com/", SiteKey: "s3cr3t"}
 	_, desp3, _ := buildNotify(cfg3, "x", courses, "3.45", "88.20", false)
-	if !strings.Contains(desp3, "https://grades.example.com/s3cr3t/") {
+	if !strings.Contains(desp3, "https://grades.example.com/#s3cr3t") {
 		t.Errorf("desp3 missing keyed deep link: %q", desp3)
 	}
 

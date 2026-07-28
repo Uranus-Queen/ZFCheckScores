@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ const (
 	copyright = "Copyright © 2026 IKAROS. All rights reserved."
 	divider   = "══════════════════════════"
 	subdiv    = "──────────────────────────"
+	siteDir   = "dist"
 
 	firstRunMsg = "你的程序运行成功\n从现在开始,程序将会每隔 30 分钟自动检测一次成绩是否有更新\n若有更新,将通过微信推送及时通知你"
 )
@@ -139,16 +141,25 @@ func main() {
 	ogc, _ := st.OldGradeContent()
 	var logLines []string
 
+	// Server酱只承载「摘要 + 自托管页链接」；毛玻璃完整卡片在 dist/index.html。
+	title, desp, short := buildNotify(cfg, sem.Label(), courses, gpa, pctGPA, firstRun)
+
 	switch {
 	case gradeErr:
 		reason, suggestion := classifyGrade(lastGradeRes)
 		reportFatal(fmt.Sprintf("获取成绩失败：%s\n建议：%s", reason, suggestion), cfg)
 	case firstRun:
 		logLines = append(logLines, firstRunMsg)
-		logLines = append(logLines, pushAndReport(cfg, pushTitle, fullHTML))
+		logLines = append(logLines, notify(cfg, title, desp, short))
+		if err := writeSite(siteDir, fullHTML); err != nil {
+			log.Printf("warn: write site: %v", err)
+		}
 	case gc != ogc || cfg.ForcePush:
 		logLines = append(logLines, "成绩已更新")
-		logLines = append(logLines, pushAndReport(cfg, pushTitle, fullHTML))
+		logLines = append(logLines, notify(cfg, title, desp, short))
+		if err := writeSite(siteDir, fullHTML); err != nil {
+			log.Printf("warn: write site: %v", err)
+		}
 	default:
 		logLines = append(logLines, "成绩未更新")
 		if last := lastSubmission(curGrades); last != "" {
@@ -193,13 +204,54 @@ func main() {
 	}
 }
 
-// pushAndReport calls Showdoc and returns the response for the run log.
-func pushAndReport(cfg *config.Config, title, content string) string {
-	resp, err := push.Showdoc(cfg.Token, title, content)
+// notify sends the grade-update alert via Server酱. The self-hosted
+// glassmorphism page (dist/index.html) is the canonical view; Server酱 only
+// carries a short summary + a deep link to it, because WeChat templates /
+// markdown cannot render the card. Returns the API response for the run log.
+func notify(cfg *config.Config, title, desp, short string) string {
+	if cfg.ServerChanKey == "" {
+		return "skip: SERVERCHAN_SENDKEY 未配置"
+	}
+	resp, err := push.ServerChan(cfg.ServerChanKey, title, desp, short)
 	if err != nil {
 		return "push error: " + err.Error()
 	}
 	return resp
+}
+
+// buildNotify composes the Server酱 title / markdown desp / card-preview short.
+// The link points to the self-hosted page; if GRADES_DOMAIN is unset, a
+// placeholder line is used instead so the notification still carries the summary.
+func buildNotify(cfg *config.Config, semLabel string, courses []push.Course, gpa, pctGPA string, firstRun bool) (title, desp, short string) {
+	title = "正方教务成绩更新"
+	n := len(courses)
+	var b strings.Builder
+	b.WriteString("**正方教务 · 成绩更新**\n\n")
+	b.WriteString(fmt.Sprintf("本学期 **%d** 门已出成绩\n", n))
+	b.WriteString(fmt.Sprintf("累计 GPA **%s** · 百分制均分 **%s**\n", gpa, pctGPA))
+	if firstRun {
+		b.WriteString("\n（首次运行，下方为本学期全部已出成绩）\n")
+	}
+	domain := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(cfg.SiteDomain, "https://"), "http://"), "/")
+	if domain != "" {
+		b.WriteString(fmt.Sprintf("\n[点此查看完整成绩卡片](https://%s/)\n", domain))
+	} else {
+		b.WriteString("\n（自托管成绩页部署中，稍后于推送链接查看）\n")
+	}
+	desp = b.String()
+	short = fmt.Sprintf("正方教务成绩更新 · 本学期%d门 · GPA%s", n, gpa)
+	return
+}
+
+// writeSite writes the self-contained glassmorphism HTML page into dir as
+// index.html, so Cloudflare Pages (Git integration) deploys it on the next
+// push. Only called when we actually push (first run / grade change / force),
+// so unchanged runs don't churn the deployed site.
+func writeSite(dir, html string) error {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "index.html"), []byte(html), 0644)
 }
 
 // ──────────────────────────── failure diagnosis ────────────────────────────

@@ -24,7 +24,10 @@ profile.out
 web/node_modules/
 web/dist/
 web/.wrangler/
+web/.local-preview/
 web/*.tsbuildinfo
+web/package-lock.json
+.wrangler/
 
 # ─── Go 模块 / 工作区 ───
 /vendor/               # 当前使用 Go modules（无 vendor）；若误生成则忽略

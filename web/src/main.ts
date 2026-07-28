@@ -4,10 +4,10 @@
  */
 import "./style.css";
 import { decryptPayload } from "./crypto";
-import type { Envelope, FilterKey, GradePayload, SortKey } from "./types";
+import type { Envelope, GradePayload } from "./types";
 import {
+  initLiquidGlass,
   renderApp,
-  renderCourseList,
   renderError,
   renderKeyPrompt,
   renderWaiting,
@@ -80,42 +80,11 @@ function promptKey(env: Envelope, wrongKey: boolean): void {
   input.focus();
 }
 
-/* ────────────────────────── interactive mount ────────────────────────── */
+/* ────────────────────────── mount（单卡片，无交互） ────────────────────────── */
 
 function mount(payload: GradePayload, plaintextWarning: boolean): void {
   app.innerHTML = renderApp(payload, plaintextWarning);
-
-  const listEl = document.getElementById("course-list")!;
-  const searchEl = document.getElementById("search") as HTMLInputElement;
-  const sortEl = document.getElementById("sort") as HTMLSelectElement;
-  const filtersEl = document.getElementById("filters")!;
-
-  let filter: FilterKey = "all";
-
-  const refresh = (): void => {
-    listEl.innerHTML = renderCourseList(
-      payload.courses,
-      searchEl.value,
-      sortEl.value as SortKey,
-      filter,
-    );
-  };
-
-  searchEl.addEventListener("input", refresh);
-  sortEl.addEventListener("change", refresh);
-  filtersEl.addEventListener("click", (ev) => {
-    const btn = (ev.target as HTMLElement).closest<HTMLButtonElement>(
-      "button[data-filter]",
-    );
-    if (!btn) return;
-    filter = btn.dataset.filter as FilterKey;
-    filtersEl
-      .querySelectorAll(".chip")
-      .forEach((c) => c.classList.toggle("chip--on", c === btn));
-    refresh();
-  });
-
-  refresh();
+  initLiquidGlass();
 }
 
 void boot();

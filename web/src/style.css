@@ -3,10 +3,12 @@
 /* ── Liquid Glass 主题（与原 grade_card.html 同源配色）───────────────── */
 
 :root {
-  --c-green: #30d158;
   --c-red: #ff453a;
   --c-blue: #0a84ff;
-  --c-text-2nd: rgba(235, 235, 245, 0.6);
+  --c-text-2nd: rgba(235, 235, 245, 0.7);
+  /* 成绩卡片（preview_card.html 同源）动画变量 */
+  --t: 0.3s;
+  --spring: cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 body {
@@ -47,15 +49,40 @@ body {
   border-radius: 16px;
 }
 
-/* 分数配色（与 Go 侧 scoreClass 对齐：g / 空 / fail） */
-.score-g {
-  color: var(--c-green);
+/* 液态玻璃图标光环（替代 emoji 的状态徽章：玻璃填充 + 内高光 + 同色柔辉） */
+.orb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.14),
+    rgba(255, 255, 255, 0.04)
+  );
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 0 28px var(--orb-glow, rgba(10, 132, 255, 0.28));
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
 }
-.score-fail {
-  color: var(--c-red);
+.orb--blue {
+  --orb-glow: rgba(10, 132, 255, 0.3);
+  color: #7cb8ff;
+}
+.orb--red {
+  --orb-glow: rgba(255, 69, 58, 0.28);
+  color: #ff8a80;
+}
+.orb--amber {
+  --orb-glow: rgba(255, 159, 10, 0.28);
+  color: #ffc46b;
 }
 
-/* 控件（搜索框 / 下拉 / 筛选 chips） */
+/* 控件（密钥输入框） */
 .ctl {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -77,35 +104,6 @@ select.ctl option {
   color: #fff;
 }
 
-.chip {
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--c-text-2nd);
-  transition: all 0.18s ease;
-  cursor: pointer;
-  user-select: none;
-}
-.chip--on {
-  background: rgba(10, 132, 255, 0.22);
-  border-color: rgba(10, 132, 255, 0.5);
-  color: #fff;
-}
-
-/* 分布条 */
-.bar {
-  height: 6px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  overflow: hidden;
-}
-.bar > i {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
 /* 入场动画 */
 @keyframes rise {
   from {
@@ -125,7 +123,281 @@ select.ctl option {
   .rise {
     animation: none;
   }
-  .bar > i {
-    transition: none;
+}
+
+/* ────────────────────────── 成绩卡片（与 preview_card.html 同源的单卡片） ────────────────────────── */
+
+.gc {
+  position: relative;
+  border-radius: 24px;
+  overflow: hidden;
+  margin-bottom: 16px;
+  /* 与 preview_card.html 同源：元素级兜底细描边 + drop-shadow，让玻璃边界更立 */
+  box-shadow:
+    0 18px 50px -12px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+  transition: transform var(--t) var(--spring);
+  animation: fadeInUp 0.5s var(--spring) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
   }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gc {
+    animation: none;
+  }
+}
+
+/* 液态玻璃分层（与 preview_card.html 一致） */
+.gc__warp {
+  position: absolute;
+  inset: 0;
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
+  background: rgba(28, 28, 30, 0.5);
+  z-index: 1;
+}
+.gc__warp.has-filter {
+  filter: url(#liquid-glass);
+}
+.gc__border {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 2;
+  padding: 1px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  background: linear-gradient(
+    calc(135deg + var(--mx, 0.5) * 60deg - 30deg),
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, calc(0.08 + var(--mx, 0.5) * 0.04)) calc(33% - var(--my, 0.5) * 15%),
+    rgba(255, 255, 255, calc(0.25 + var(--mx, 0.5) * 0.06)) calc(66% - var(--my, 0.5) * 15%),
+    rgba(255, 255, 255, 0) 100%
+  );
+  mix-blend-mode: screen;
+  opacity: 0.6;
+  transition: opacity var(--t) var(--spring);
+}
+.gc__border-2 {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 2;
+  padding: 1px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  background: linear-gradient(
+    calc(135deg + var(--mx, 0.5) * 60deg - 30deg),
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, calc(0.2 + var(--mx, 0.5) * 0.04)) calc(33% - var(--my, 0.5) * 15%),
+    rgba(255, 255, 255, calc(0.4 + var(--mx, 0.5) * 0.06)) calc(66% - var(--my, 0.5) * 15%),
+    rgba(255, 255, 255, 0) 100%
+  );
+  mix-blend-mode: overlay;
+  opacity: 0.5;
+}
+.gc__shadow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  box-shadow:
+    0 18px 50px -12px rgba(0, 0, 0, 0.55),
+    0 6px 16px -6px rgba(0, 0, 0, 0.4),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+    inset 0 0 70px 12px rgba(10, 132, 255, 0.035);
+}
+.gc__content {
+  position: relative;
+  z-index: 1;
+}
+.gc::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 5;
+  background: radial-gradient(130% 90% at 50% -10%, rgba(10, 132, 255, 0.06), transparent 55%);
+  mix-blend-mode: screen;
+  opacity: 0.9;
+}
+
+/* 卡片内文字（与 preview_card.html 同字号/配色） */
+.gc-title {
+  padding: 24px 24px 20px;
+  text-align: center;
+}
+.gc-title .sem {
+  font-size: 1.625rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.02em;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.gc-title .subtitle {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: rgba(235, 235, 245, 0.7);
+  margin: 5px 0 0;
+}
+.gc-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(235, 235, 245, 0.7);
+  padding: 18px 20px 10px;
+  margin: 0;
+}
+.gc-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 20px;
+  position: relative;
+}
+.gc-row:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 20px;
+  right: 20px;
+  height: 0.5px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.gc-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+.gc-info {
+  flex: 1;
+  min-width: 0;
+}
+.gc-name {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: #fff;
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: break-word;
+}
+.gc-meta {
+  font-size: 0.75rem;
+  color: rgba(235, 235, 245, 0.7);
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.gc-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.gc-score {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  min-width: 32px;
+  text-align: right;
+}
+.gc-score.fail {
+  color: var(--c-red);
+}
+.gc-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 0;
+  padding: 8px 16px 20px;
+}
+.gc-cell {
+  text-align: center;
+  padding: 20px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 14px;
+}
+.gc-val {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.gc-lbl {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: rgba(235, 235, 245, 0.7);
+  margin: 8px 0 0;
+}
+.gc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.gc-plist {
+  list-style: none;
+  margin: 0;
+  padding: 4px 16px 20px;
+}
+.gc-pitem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  font-size: 0.875rem;
+  color: rgba(235, 235, 245, 0.7);
+  line-height: 1.4;
+}
+.gc-pitem .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(235, 235, 245, 0.3);
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+.gc-pitem .cn {
+  flex: 1;
+}
+.gc-pitem .tn {
+  color: rgba(235, 235, 245, 0.7);
+  font-size: 0.75rem;
+}
+.gc-footer {
+  margin-top: auto;
+  padding: 24px 0 0;
+  text-align: center;
+  font-size: 0.6875rem;
+  color: rgba(235, 235, 245, 0.7);
+}
+.gc-plain {
+  margin: 0 0 16px;
+  padding: 16px 20px;
+  background: rgba(255, 159, 10, 0.12);
+  border-radius: 14px;
+  font-size: 0.8125rem;
+  color: rgba(235, 235, 245, 0.7);
+  line-height: 1.6;
 }

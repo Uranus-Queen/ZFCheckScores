@@ -18,7 +18,7 @@ export interface CourseRow {
   grade: string;
   teacher: string;
   time: string;
-  /** "g" = 优秀(绿) · "" = 普通(白) · "fail" = 不及格(红)，Go 侧已算好。 */
+  /** 仅 "fail" = 不及格(红)，其余(""/"g")均为白色；Go 侧已算好。 */
   scoreClass: "g" | "" | "fail";
 }
 
@@ -37,6 +37,3 @@ export interface GradePayload {
   pending: PendingRow[];
   copyright: string;
 }
-
-export type SortKey = "time" | "scoreDesc" | "scoreAsc";
-export type FilterKey = "all" | "good" | "pass" | "fail";

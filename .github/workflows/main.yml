@@ -62,7 +62,8 @@ jobs:
           URL: ${{ secrets.URL }}
           USERNAME: ${{ secrets.USERNAME }}
           PASSWORD: ${{ secrets.PASSWORD }}
-          TOKEN: ${{ secrets.TOKEN }}
+          SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+          GRADES_DOMAIN: ${{ secrets.GRADES_DOMAIN }}
           COOKIES: ${{ secrets.COOKIES }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
@@ -89,11 +90,11 @@ jobs:
             "::Must provide either USERNAME+PASSWORD or COOKIES."
             Whether_Secret_is_empty=true
           fi
-          if [ -z "$TOKEN" ]; then
-            echo "TOKEN Secret is empty!"
-            echo "::error title=TOKEN Secret is empty!" \
-            "::Your 'TOKEN' Secret is not filled with any" \
-            "information, so your program will not work!"
+          if [ -z "$SERVERCHAN_SENDKEY" ]; then
+            echo "SERVERCHAN_SENDKEY Secret is empty!"
+            echo "::error title=SERVERCHAN_SENDKEY Secret is empty!" \
+            "::Your 'SERVERCHAN_SENDKEY' Secret (Server酱 SendKey) is not" \
+            "filled, so the grade-update notification cannot be sent!"
             Whether_Secret_is_empty=true
           fi
           if [ "$Whether_Secret_is_empty" = true ]; then

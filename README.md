@@ -45,8 +45,8 @@
 | USERNAME           | 2023210333027                       | 学号                              |
 | PASSWORD           | Y3xhaCkb5PZ4                        | 密码                              |
 | SERVERCHAN_SENDKEY | SCT386139Txxxxxxxxxxxxxxxxxxxxxxxxx | [Server酱 SendKey]，成绩更新通知。**必填**（替代原 Showdoc）|
-| GRADES_DOMAIN      | grades.example.com                  | 自托管成绩页的自定义域名。**与 `GRADES_KEY` 成对设置**（两者都填或都留空）；通知里的「查看完整卡片」链接指向 `https://<域名>/<密钥>/` |
-| GRADES_KEY         | `s3cr3t-9x2k`                        | 成绩页**访问密钥**（写入 URL 路径，免登录）。成对设置后，成绩页只在 `https://<域名>/<密钥>/` 可见，根路径仅为占位页；链接本身即访问凭证，请勿外泄 |
+| GRADES_DOMAIN      | grades.example.com                  | 自托管成绩页的自定义域名。**与 `GRADES_KEY` 成对设置**（两者都填或都留空）；通知里的「查看完整卡片」链接指向 `https://<域名>/#<密钥>` |
+| GRADES_KEY         | `s3cr3t-9x2k`                        | 成绩页**端到端加密密钥**（AES-256-GCM 密钥，由它派生）。成对设置后，成绩卡片在仓库里是**密文**，浏览器用链接里的 `#<密钥>` 片段实时解密显示；片段不上服务器、不进仓库，公开仓库也泄露不了明文。链接即凭证，请勿外泄 |
 | COOKIES            | `{"JSESSIONID":"...","route":"..."}` | **可选**。浏览器 Cookie，跳过验证码 |
 
 ### Cookie 登录
@@ -68,15 +68,15 @@
 
 ### 6. 部署成绩页到 Cloudflare Pages（自托管）
 
-成绩卡片是完整的 HTML 文档，由 Cloudflare Pages 通过 **Git 集成**自动部署——无需在仓库里放任何 API 令牌。首次运行后真实卡片写到 `dist/<GRADES_KEY>/index.html`（根路径 `dist/index.html` 是占位页），链接形如 `https://<域名>/<GRADES_KEY>/`。
+成绩卡片是完整的 HTML 文档，由 Cloudflare Pages 通过 **Git 集成**自动部署——无需在仓库里放任何 API 令牌。首次运行后真实卡片以 **AES 加密**形式写到 `dist/index.html`（解密页，密钥在链接 `#<GRADES_KEY>` 片段），链接形如 `https://<域名>/#<GRADES_KEY>`。
 
 1. **连接仓库**：Cloudflare 控制台 → `Workers & Pages` → `Create` → `Pages` → `Connect to Git` → 选择本仓库。
 2. **构建设置**：`Build command` 留空，`Build output directory` 填 `dist`，`Root directory` 留空（即仓库根）。保存后 Cloudflare 会在每次 push 到 `main` 时自动部署。
 3. **自定义域名**（成对设置 `GRADES_DOMAIN` + `GRADES_KEY`）：Pages 项目 → `Custom domains` → 添加你的域名（如 `grades.example.com`），按提示在域名服务商处加一条 **CNAME** 记录指向 `*.pages.dev` 提供的目标。然后把域名填到 Secrets 的 `GRADES_DOMAIN`，并设置一个任意长随机串作为 `GRADES_KEY`。
-4. **访问方式（免登录、凭链接即看）**：成绩页写到 `dist/<GRADES_KEY>/index.html`，由 Cloudflare 部署在 `https://<域名>/<GRADES_KEY>/`。成绩数据**只存在于该随机路径**，根路径 `/` 仅为占位页（"成绩页生成中"），因此无需 Cloudflare Access / 邮箱验证码等额外登录步骤——点开通知里的链接即可直接查看。「链接即凭证」，请只发给自己，不要公开。
-   > 为什么不推荐 `?key=xxx` 查询参数？那种做法是让页面里的 JS 校验口令，口令写在 HTML 源码里，任何人看源码就能绕过；而**路径方式下成绩物理上只在该路径**，无口令可绕，更安全。
+4. **访问方式（免登录、端到端加密）**：成绩卡片在仓库里以 **AES-256-GCM 密文**形式写到 `dist/index.html`（解密页），由 Cloudflare 部署在 `https://<域名>/`。解密密钥只存在于通知链接的片段里：`https://<域名>/#<GRADES_KEY>`。点开链接后，浏览器从 `#` 片段取出密钥、本地解密并渲染——**无需任何登录步骤**，且片段**不会发到 Cloudflare 服务器、也不会进仓库**，所以即便仓库是公开的，他人读到的也只是密文，看不到成绩明文。「链接即凭证」，请只发给自己，不要公开。
+   > 为什么不用「密码查询参数 `?key=` 只做访问校验」？那种做法页码里的 JS 只是校验口令、明文仍在页面里，看源码即可绕过。这里是**端到端加密**：明文只在浏览器用密钥解出，仓库里只有密文，安全得多。
 
-> 首跑前根路径 `dist/index.html` 是占位页（"成绩页生成中"），首次成功运行 Actions 后真实卡片会被写到 `dist/<GRADES_KEY>/index.html` 并部署。`dist/_headers` 已设 `/*` 为 `no-cache`，保证成绩更新即时可见。
+> 首跑前 `dist/index.html` 是占位页（"成绩页生成中"），首次成功运行 Actions 后会被「加密解密页」覆盖并部署：页面内含密文，浏览器用 `#<密钥>` 解密显示。`dist/_headers` 已设 `/*` 为 `no-cache`，保证成绩更新即时可见。
 
 ## 程序逻辑
 
@@ -84,7 +84,7 @@
 2. 判定当前学期（已选课程优先 → 日历兜底）
 3. 抓取本学期成绩，MD5 哈希写入 `data/grade.txt`
 4. 与上一次快照 `data/old_grade.txt` 比对
-5. 成绩变化或首次运行时，通过 **Server酱** 推送微信通知（摘要 + 自托管页链接），并把完整毛玻璃卡片写入 `dist/<GRADES_KEY>/index.html` 由 Cloudflare Pages 部署（根路径 `dist/index.html` 仅为占位页）
+5. 成绩变化或首次运行时，通过 **Server酱** 推送微信通知（摘要 + 自托管页链接），并把完整毛玻璃卡片 **AES 加密**后写入 `dist/index.html`（解密页，密钥在链接 `#<GRADES_KEY>` 片段），由 Cloudflare Pages 部署
 
 ## 本地运行
 

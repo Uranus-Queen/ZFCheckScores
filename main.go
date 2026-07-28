@@ -151,13 +151,13 @@ func main() {
 	case firstRun:
 		logLines = append(logLines, firstRunMsg)
 		logLines = append(logLines, notify(cfg, title, desp, short))
-		if err := writeSite(siteTargetDir(cfg), fullHTML); err != nil {
+		if err := writeSite(siteDir, sitePage(cfg, fullHTML)); err != nil {
 			log.Printf("warn: write site: %v", err)
 		}
 	case gc != ogc || cfg.ForcePush:
 		logLines = append(logLines, "成绩已更新")
 		logLines = append(logLines, notify(cfg, title, desp, short))
-		if err := writeSite(siteTargetDir(cfg), fullHTML); err != nil {
+		if err := writeSite(siteDir, sitePage(cfg, fullHTML)); err != nil {
 			log.Printf("warn: write site: %v", err)
 		}
 	default:
@@ -205,10 +205,10 @@ func main() {
 }
 
 // notify sends the grade-update alert via Server酱. The self-hosted
-// glassmorphism page (dist/<GRADES_KEY>/index.html) is the canonical view;
-// Server酱 only carries a short summary + a deep link to it, because WeChat
-// templates / markdown cannot render the card. Returns the API response for
-// the run log.
+// glassmorphism page (dist/index.html, encrypted — key in the URL #fragment)
+// is the canonical view; Server酱 only carries a short summary + a deep link to
+// it, because WeChat templates / markdown cannot render the card. Returns the
+// API response for the run log.
 func notify(cfg *config.Config, title, desp, short string) string {
 	if cfg.ServerChanKey == "" {
 		return "skip: SERVERCHAN_SENDKEY 未配置"
@@ -221,11 +221,12 @@ func notify(cfg *config.Config, title, desp, short string) string {
 }
 
 // buildNotify composes the Server酱 title / markdown desp / card-preview short.
-// The link points to the self-hosted page at an unguessable path
-// https://<domain>/<key>/ — so opening it needs no extra login step, and the
-// grades physically live only at that path (root stays a placeholder). If either
-// GRADES_DOMAIN or GRADES_KEY is unset, a placeholder line is used instead so
-// the notification never embeds a broken or publicly-rooted URL.
+// The link points to the self-hosted page with the decryption key in the URL
+// fragment: https://<domain>/#<key>. The fragment is never sent to the server
+// and never stored in the repo, so the page needs no login step yet a public
+// repository leaks only ciphertext. If either GRADES_DOMAIN or GRADES_KEY is
+// unset, a placeholder line is used instead so the notification never embeds a
+// broken or publicly-readable URL.
 func buildNotify(cfg *config.Config, semLabel string, courses []push.Course, gpa, pctGPA string, firstRun bool) (title, desp, short string) {
 	title = "正方教务成绩更新"
 	n := len(courses)
@@ -243,11 +244,11 @@ func buildNotify(cfg *config.Config, semLabel string, courses []push.Course, gpa
 	key := strings.TrimSpace(cfg.SiteKey)
 	switch {
 	case domain != "" && key != "":
-		// 成绩页仅在 /<key>/ 路径下存在，点开即看，无需登录。
-		b.WriteString(fmt.Sprintf("\n[点此查看完整成绩卡片](https://%s/%s/)\n", domain, key))
+		// 密钥在 URL 片段 #key 中：点开即看、无需登录；片段不上服务器、不进仓库。
+		b.WriteString(fmt.Sprintf("\n[点此查看完整成绩卡片](https://%s/#%s)\n", domain, key))
 	case domain != "":
-		// 有域名但缺密钥：根路径是公开占位页，不附链接以免泄露成绩。
-		b.WriteString("\n（未设置 GRADES_KEY，成绩页为公开根路径，已不附链接；请在 Secrets 设置 GRADES_KEY）\n")
+		// 有域名但缺密钥：根路径是明文占位页，不附链接以免泄露成绩。
+		b.WriteString("\n（未设置 GRADES_KEY，成绩页为明文公开页，已不附链接；请在 Secrets 设置 GRADES_KEY 启用端到端加密）\n")
 	default:
 		b.WriteString("\n（自托管成绩页部署中，稍后于推送链接查看）\n")
 	}
@@ -256,17 +257,24 @@ func buildNotify(cfg *config.Config, semLabel string, courses []push.Course, gpa
 	return
 }
 
-// siteTargetDir returns the directory where the self-hosted page is written.
-// When GRADES_KEY is set, the page lives under dist/<key>/ — an unguessable
-// path so the grades are NOT at the site root and need no login wall. When
-// GRADES_KEY is empty, it falls back to dist/ (root, publicly readable) with a
-// warning, so local runs still work without the secret.
-func siteTargetDir(cfg *config.Config) string {
-	if strings.TrimSpace(cfg.SiteKey) == "" {
-		log.Printf("warn: GRADES_KEY 未设置，成绩页将写到根路径 %s（公开可访问，建议设置 GRADES_KEY 改为 /<密钥>/ 路径）", siteDir)
-		return siteDir
+// sitePage returns the HTML to write for the self-hosted page. When GRADES_KEY
+// is set, the full glassmorphism card is AES-encrypted and wrapped in a
+// decrypter page whose key lives only in the URL fragment (#key) — so a public
+// repository stores only ciphertext and leaks nothing readable, while opening
+// the link needs no login. When GRADES_KEY is empty it falls back to the
+// plaintext card (with a warning) so local runs still work without the secret.
+func sitePage(cfg *config.Config, html string) string {
+	key := strings.TrimSpace(cfg.SiteKey)
+	if key == "" {
+		log.Printf("warn: GRADES_KEY 未设置，成绩页将明文写到 %s（公开可访问，建议设置 GRADES_KEY 启用端到端加密）", siteDir)
+		return html
 	}
-	return filepath.Join(siteDir, strings.TrimSpace(cfg.SiteKey))
+	enc, err := push.EncryptAndWrap(html, key)
+	if err != nil {
+		log.Printf("warn: encrypt site page: %v（回退明文）", err)
+		return html
+	}
+	return enc
 }
 
 // writeSite writes the self-contained glassmorphism HTML page into dir as

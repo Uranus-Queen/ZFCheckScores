@@ -15,6 +15,7 @@ type Config struct {
 	Cookies       map[string]string
 	ServerChanKey string // Server酱 SendKey（SCT...），用于成绩更新通知
 	SiteDomain    string // 自托管成绩页的自定义域名，如 grades.example.com（不含协议头）
+	SiteKey       string // 成绩页访问密钥，作为 URL 路径段：https://<域名>/<SiteKey>/（避免额外登录步骤）
 	ForcePush     bool
 	GitHubActions bool
 	TimeoutSec    int // HTTP timeout in seconds (default 30)
@@ -57,6 +58,7 @@ func Load() *Config {
 		Cookies:       parseCookies(os.Getenv("COOKIES")),
 		ServerChanKey: os.Getenv("SERVERCHAN_SENDKEY"),
 		SiteDomain:    os.Getenv("GRADES_DOMAIN"),
+		SiteKey:       os.Getenv("GRADES_KEY"),
 		ForcePush:     forcePush,
 		GitHubActions: ga,
 		TimeoutSec:    timeoutSec,

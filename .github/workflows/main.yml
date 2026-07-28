@@ -64,6 +64,7 @@ jobs:
           PASSWORD: ${{ secrets.PASSWORD }}
           SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
           GRADES_DOMAIN: ${{ secrets.GRADES_DOMAIN }}
+          GRADES_KEY: ${{ secrets.GRADES_KEY }}
           COOKIES: ${{ secrets.COOKIES }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
@@ -96,6 +97,18 @@ jobs:
             "::Your 'SERVERCHAN_SENDKEY' Secret (Server酱 SendKey) is not" \
             "filled, so the grade-update notification cannot be sent!"
             Whether_Secret_is_empty=true
+          fi
+          # GRADES_DOMAIN 与 GRADES_KEY 必须成对出现：密钥决定成绩页 URL 路径
+          # （https://<域名>/<密钥>/），缺密钥会把成绩写到根路径（公开），缺域名则
+          # 通知里没有可点击的链接。两者都不填则视为「不启用自托管页」，允许通过。
+          if [ -n "$GRADES_DOMAIN" ] || [ -n "$GRADES_KEY" ]; then
+            if [ -z "$GRADES_DOMAIN" ] || [ -z "$GRADES_KEY" ]; then
+              echo "GRADES_DOMAIN and GRADES_KEY must be set together!"
+              echo "::error title=GRADES_DOMAIN / GRADES_KEY 不匹配!" \
+              "::自托管成绩页需要两者成对：GRADES_KEY 决定访问路径（免登录），" \
+              "GRADES_DOMAIN 决定域名。请同时设置或同时留空。"
+              Whether_Secret_is_empty=true
+            fi
           fi
           if [ "$Whether_Secret_is_empty" = true ]; then
             echo "One or more Secrets are empty."

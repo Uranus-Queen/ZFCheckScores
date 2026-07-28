@@ -18,9 +18,9 @@ coverage.txt
 coverage.out
 profile.out
 
-# ─── web/ 前端（Vite + TS + Tailwind，Cloudflare Pages 构建）───
-# 注意：web/public/payload.json 必须纳入版本控制（加密成绩信封，
-# Actions 写入 → push → Cloudflare Pages 随 SPA 一起部署）。
+# ─── web/ 前端（Vite + TS + Tailwind + Hono，Cloudflare Worker 部署）───
+# 成绩数据不再入库：Actions 写 data/payload.json → wrangler kv put 进
+# Workers KV，Worker 运行时读 KV（数据更新与部署解耦、零构建额度）。
 web/node_modules/
 web/dist/
 web/.wrangler/

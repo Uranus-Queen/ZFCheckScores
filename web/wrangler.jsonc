@@ -1,0 +1,44 @@
+// Cloudflare Worker 配置（wrangler v4）
+// 部署：cd web && npm run build && npx wrangler deploy
+// 数据更新不经过这里——GitHub Actions 直接 `wrangler kv key put` 写 KV。
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "zfcheckscores-grades",
+  "main": "worker/index.ts",
+  "account_id": "1b3c58e6b5b37f48dca4b48324c1d103",
+  "compatibility_date": "2026-07-01",
+
+  // Vite 构建产物作为静态资产；/payload.json 与 /api/* 必须先进 Worker
+  //（读 KV），其余路径由资产层直接命中（不消耗 Worker 请求额度）。
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/payload.json", "/api/*"]
+  },
+
+  // 加密成绩信封所在的 KV namespace（id 由 `wrangler kv namespace create PAYLOAD_KV` 生成）。
+  "kv_namespaces": [
+    {
+      "binding": "PAYLOAD_KV",
+      "id": "e11eae3473714e528dd04d5eb9dca11c"
+    }
+  ],
+
+  // 自定义域（原 Cloudflare Pages 域名迁移至 Worker；如域名仍绑定在
+  // Pages 项目上，需先在 Pages 后台解绑再 deploy）。
+  // 自定义域：用 route 模式（而非 custom_domain）。原因：该域名的 CNAME
+  // 仍指向旧 Pages 项目，custom_domain 要求 DNS 无记录才能绑定；route 则
+  // 直接在代理层把 grades.zhangjun.xyz/* 的流量劫持给本 Worker，DNS 无需
+  // 改动（前提：DNS 记录保持橙云代理状态）。
+  "routes": [
+    {
+      "pattern": "grades.zhangjun.xyz/*",
+      "zone_name": "zhangjun.xyz"
+    }
+  ],
+
+  "observability": {
+    "enabled": true
+  }
+}

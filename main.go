@@ -22,17 +22,20 @@ const (
 	copyright = "Copyright © 2026 IKAROS. All rights reserved."
 	divider   = "══════════════════════════"
 	subdiv    = "──────────────────────────"
-	// 自托管成绩页的数据文件：web/ 是 Vite+TS+Tailwind SPA（Cloudflare Pages
-	// 构建部署），Go 侧只负责把加密后的成绩 JSON 信封写进它的静态资源目录。
-	sitePayload = "web/public/payload.json"
+	// 自托管成绩页的数据文件：Go 侧只负责产出加密 JSON 信封写到 data/，
+	// 由 GitHub Actions 用 `wrangler kv key put` 推送到 Cloudflare KV；
+	// Worker（web/worker/index.ts）运行时从 KV 读取——数据更新与站点
+	// 部署完全解耦，不消耗任何构建额度。
+	sitePayload = "data/payload.json"
 
 	firstRunMsg = "你的程序运行成功\n从现在开始,程序将会每隔 30 分钟自动检测一次成绩是否有更新\n若有更新,将通过微信推送及时通知你"
 )
 
 // The Liquid Glass presentation layer now lives in web/ (Vite + TypeScript +
-// Tailwind SPA on Cloudflare Pages). Go only produces the encrypted JSON
-// envelope (internal/push/payload.go) written to web/public/payload.json;
-// rendering, search/sort/filter, and decryption all happen in the browser.
+// Tailwind SPA served by a Cloudflare Worker). Go only produces the encrypted
+// JSON envelope (internal/push/payload.go) written to data/payload.json, which
+// CI pushes into Workers KV; rendering, search/sort/filter, and decryption all
+// happen in the browser.
 
 func main() {
 	cfg := config.Load()
@@ -278,8 +281,8 @@ func buildSitePayload(cfg *config.Config, semLabel string, courses []push.Course
 	}
 }
 
-// writeSitePayload writes the (encrypted) JSON envelope to web/public/
-// payload.json, so Cloudflare Pages deploys it with the SPA on the next push.
+// writeSitePayload writes the (encrypted) JSON envelope to data/payload.json;
+// the workflow then uploads it to Workers KV via `wrangler kv key put`.
 // When GRADES_KEY is set the repo stores only AES-256-GCM ciphertext — the
 // decryption key travels in the URL fragment (#key) and never reaches the
 // server or the repo. When GRADES_KEY is empty the envelope carries plaintext

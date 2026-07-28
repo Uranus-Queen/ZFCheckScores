@@ -7,7 +7,10 @@ run-name: ${{ github.workflow }} ${{ github.sha }}
 # 指定此工作流的触发器
 on:
   schedule:
-    - cron: "*/30 * * * *" # 每30分钟自动执行一次
+    # 只在期末季运行（12/1/2 月 = 秋季学期期末，6/7/8 月 = 春季学期期末），
+    # 每 30 分钟一次；平时不跑，需要时随时可手动 Run workflow。
+    # 想全年运行改回 "*/30 * * * *" 即可（公共仓库 Actions 不限时长）。
+    - cron: "*/30 * * 1,2,6,7,8,12 *"
   workflow_dispatch: # 可以手动执行
     inputs:
       force_push_message:
@@ -100,9 +103,11 @@ jobs:
           fi
           # GRADES_DOMAIN 与 GRADES_KEY 必须成对出现：GRADES_KEY 是 AES-256-GCM
           # 端到端加密密钥（通知链接形如 https://<域名>/#<密钥>，密钥只在 URL
-          # # 片段里，不上服务器、不进仓库），缺密钥会把成绩明文写进公开仓库的
-          # web/public/payload.json，缺域名则通知里没有可点击的链接。
+          # # 片段里，不上服务器、不进仓库），缺密钥会把成绩明文写进 KV
+          # （任何人可拉取），缺域名则通知里没有可点击的链接。
           # 两者都不填则视为「不启用自托管页」，允许通过。
+          # 自托管页数据经 data/payload.json → Cloudflare Workers KV 投递，
+          # 因此启用自托管页时还需要 CLOUDFLARE_API_TOKEN（Workers KV 写权限）。
           if [ -n "$GRADES_DOMAIN" ] || [ -n "$GRADES_KEY" ]; then
             if [ -z "$GRADES_DOMAIN" ] || [ -z "$GRADES_KEY" ]; then
               echo "GRADES_DOMAIN and GRADES_KEY must be set together!"
@@ -175,6 +180,34 @@ jobs:
           echo "------"
 
           ./zfcheckscores
+
+      # 成绩数据投递：把加密信封写进 Cloudflare Workers KV。
+      # Worker 壳（web/）只有代码变更时才需要重新 deploy，这里每轮只做
+      # 1 次 KV 写（免费额度 1000 写/天），与站点构建/部署完全解耦。
+      - name: Push payload to Cloudflare KV
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "1b3c58e6b5b37f48dca4b48324c1d103"
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "CLOUDFLARE_API_TOKEN 未设置，跳过 KV 上传（自托管成绩页不会更新）。"
+            exit 0
+          fi
+          if [ ! -f data/payload.json ]; then
+            echo "本轮未产出 data/payload.json（成绩无变化），跳过 KV 上传。"
+            exit 0
+          fi
+          # 仅当 payload 本轮发生变化（新文件或内容更新）时才写 KV
+          if git ls-files --error-unmatch data/payload.json >/dev/null 2>&1 \
+             && git diff --quiet -- data/payload.json; then
+            echo "data/payload.json 与上轮一致，跳过 KV 上传。"
+            exit 0
+          fi
+          npx --yes wrangler@4 kv key put payload \
+            --path data/payload.json \
+            --namespace-id e11eae3473714e528dd04d5eb9dca11c \
+            --remote
+          echo "已写入 KV：namespace GRADES_KV / key payload"
 
       - name: Commit and push state (data persistence)
         run: |

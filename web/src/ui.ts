@@ -26,46 +26,52 @@ function scoreCls(c: CourseRow): string {
 
 export function renderWaiting(): string {
   return `
-  <div class="glass rise mx-auto my-auto w-full max-w-sm px-7 py-10 text-center">
-    <div class="text-4xl">⏳</div>
-    <h1 class="mt-4 text-lg font-semibold">成绩页生成中</h1>
-    <p class="mt-2 text-[13px] leading-relaxed text-[var(--c-text-2nd)]">
-      首次成功运行 GitHub Actions 后，这里会自动生成本学期的毛玻璃成绩卡片，并实时随成绩更新。
-    </p>
-  </div>
-  <footer class="mt-auto pt-6 text-center text-[11px] text-[var(--c-text-2nd)]">Powered by ZFCheckScores</footer>`;
+  <div class="fixed inset-0 z-[1] flex flex-col items-center justify-center overflow-hidden px-4 text-center">
+    <div class="glass rise w-full max-w-sm px-7 py-10">
+      <div class="text-4xl">⏳</div>
+      <h1 class="mt-4 text-lg font-semibold">成绩页生成中</h1>
+      <p class="mt-2 text-[13px] leading-relaxed text-[var(--c-text-2nd)]">
+        首次成功运行 GitHub Actions 后，这里会自动生成本学期的毛玻璃成绩卡片，并实时随成绩更新。
+      </p>
+    </div>
+    <p class="mt-6 text-[11px] text-[var(--c-text-2nd)]">Powered by ZFCheckScores</p>
+  </div>`;
 }
 
 export function renderKeyPrompt(wrongKey: boolean): string {
   return `
-  <div class="glass rise mx-auto my-auto w-full max-w-sm px-7 py-9 text-center">
-    <div class="text-4xl">${wrongKey ? "🔐" : "🔑"}</div>
-    <h1 class="mt-4 text-lg font-semibold">${wrongKey ? "解密失败" : "需要访问密钥"}</h1>
-    <p class="mt-2 text-[13px] leading-relaxed text-[var(--c-text-2nd)]">
-      ${
-        wrongKey
-          ? "密钥不正确或页面已更新，请核对后重试。"
-          : "本页内容已端到端加密。请使用带 <code class=\"text-white\">#密钥</code> 的完整链接打开，或在下方输入密钥。"
-      }
-    </p>
-    <form id="key-form" class="mt-5 flex gap-2">
-      <input id="key-input" type="password" autocomplete="off" placeholder="访问密钥"
-        class="ctl min-w-0 flex-1 px-4 py-2.5 text-[14px]" />
-      <button type="submit"
-        class="shrink-0 rounded-xl bg-[var(--c-blue)] px-4 py-2.5 text-[14px] font-medium text-white transition active:scale-95">
-        解锁
-      </button>
-    </form>
-  </div>
-  <footer class="mt-auto pt-6 text-center text-[11px] text-[var(--c-text-2nd)]">端到端加密 · 密钥不会发送到服务器</footer>`;
+  <div class="fixed inset-0 z-[1] flex flex-col items-center justify-center overflow-hidden px-4 text-center">
+    <div class="glass rise w-full max-w-sm px-7 py-9">
+      <div class="text-4xl">${wrongKey ? "🔐" : "🔑"}</div>
+      <h1 class="mt-4 text-lg font-semibold">${wrongKey ? "解密失败" : "需要访问密钥"}</h1>
+      <p class="mt-2 text-[13px] leading-relaxed text-[var(--c-text-2nd)]">
+        ${
+          wrongKey
+            ? "密钥不正确或页面已更新，请核对后重试。"
+            : "本页内容已端到端加密。请使用带 <code class=\"text-white\">#密钥</code> 的完整链接打开，或在下方输入密钥。"
+        }
+      </p>
+      <form id="key-form" class="mt-5 flex gap-2">
+        <input id="key-input" type="password" autocomplete="off" placeholder="访问密钥"
+          class="ctl min-w-0 flex-1 px-4 py-2.5 text-[14px]" />
+        <button type="submit"
+          class="shrink-0 rounded-xl bg-[var(--c-blue)] px-4 py-2.5 text-[14px] font-medium text-white transition active:scale-95">
+          解锁
+        </button>
+      </form>
+    </div>
+    <p class="mt-6 text-[11px] text-[var(--c-text-2nd)]">端到端加密 · 密钥不会发送到服务器</p>
+  </div>`;
 }
 
 export function renderError(msg: string): string {
   return `
-  <div class="glass rise mx-auto my-auto w-full max-w-sm px-7 py-10 text-center">
-    <div class="text-4xl">⚠️</div>
-    <h1 class="mt-4 text-lg font-semibold">页面加载失败</h1>
-    <p class="mt-2 text-[13px] text-[var(--c-text-2nd)]">${esc(msg)}</p>
+  <div class="fixed inset-0 z-[1] flex flex-col items-center justify-center overflow-hidden px-4 text-center">
+    <div class="glass rise w-full max-w-sm px-7 py-10">
+      <div class="text-4xl">⚠️</div>
+      <h1 class="mt-4 text-lg font-semibold">页面加载失败</h1>
+      <p class="mt-2 text-[13px] text-[var(--c-text-2nd)]">${esc(msg)}</p>
+    </div>
   </div>`;
 }
 
@@ -100,7 +106,7 @@ export function renderApp(p: GradePayload, plaintextWarning: boolean): string {
   </header>
 
   <!-- 统计 -->
-  <section class="rise mt-5 grid grid-cols-2 gap-3" style="animation-delay:.05s">
+  <section class="rise mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4" style="animation-delay:.05s">
     ${statCard("累计 GPA", p.gpa, "text-[var(--c-green)]")}
     ${statCard("百分制均分", p.pctGpa, "text-white")}
     ${statCard("已出成绩", `${n} <span class="text-[13px] font-normal text-[var(--c-text-2nd)]">门</span>`, "text-white")}

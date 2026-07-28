@@ -106,13 +106,15 @@ func TestClassifyGradeNil(t *testing.T) {
 }
 
 // TestBuildNotify locks the Server酱 notification content: course count, GPA,
-// and the self-hosted deep link. The link must normalize the domain (strip
-// scheme / trailing slash) and fall back to a placeholder when GRADES_DOMAIN
-// is unset, so the notification never embeds a broken URL.
+// and the self-hosted deep link. The link must be the unguessable path
+// https://<domain>/<key>/ (so no login step is needed) and must fall back to a
+// placeholder when GRADES_DOMAIN or GRADES_KEY is unset, so the notification
+// never embeds a broken or publicly-rooted URL.
 func TestBuildNotify(t *testing.T) {
 	courses := []push.Course{{Course: "高等数学", Grade: "92"}, {Course: "大学英语", Grade: "85"}}
 
-	cfg := &config.Config{SiteDomain: "grades.example.com"}
+	// Domain + key -> keyed deep link.
+	cfg := &config.Config{SiteDomain: "grades.example.com", SiteKey: "s3cr3t"}
 	title, desp, short := buildNotify(cfg, "2025-2026 学年第2学期", courses, "3.45", "88.20", false)
 	if title != "正方教务成绩更新" {
 		t.Errorf("title = %q, want 正方教务成绩更新", title)
@@ -120,18 +122,28 @@ func TestBuildNotify(t *testing.T) {
 	if !strings.Contains(desp, "本学期 **2** 门已出成绩") {
 		t.Errorf("desp missing course count: %q", desp)
 	}
-	if !strings.Contains(desp, "https://grades.example.com/") {
-		t.Errorf("desp missing normalized domain link: %q", desp)
+	if !strings.Contains(desp, "https://grades.example.com/s3cr3t/") {
+		t.Errorf("desp missing keyed deep link: %q", desp)
 	}
 	if short != "正方教务成绩更新 · 本学期2门 · GPA3.45" {
 		t.Errorf("short = %q", short)
 	}
 
-	// Domain given with scheme + trailing slash must still normalize.
-	cfg3 := &config.Config{SiteDomain: "https://grades.example.com/"}
+	// Domain + key given with scheme + trailing slash must still normalize.
+	cfg3 := &config.Config{SiteDomain: "https://grades.example.com/", SiteKey: "s3cr3t"}
 	_, desp3, _ := buildNotify(cfg3, "x", courses, "3.45", "88.20", false)
-	if !strings.Contains(desp3, "https://grades.example.com/") {
-		t.Errorf("desp3 missing normalized domain link: %q", desp3)
+	if !strings.Contains(desp3, "https://grades.example.com/s3cr3t/") {
+		t.Errorf("desp3 missing keyed deep link: %q", desp3)
+	}
+
+	// Domain set but key missing -> no link (root would be public).
+	cfgNoKey := &config.Config{SiteDomain: "grades.example.com"}
+	_, despNoKey, _ := buildNotify(cfgNoKey, "x", courses, "3.45", "88.20", false)
+	if strings.Contains(despNoKey, "https://") {
+		t.Errorf("desp should not contain link when key missing: %q", despNoKey)
+	}
+	if !strings.Contains(despNoKey, "GRADES_KEY") {
+		t.Errorf("desp missing GRADES_KEY hint: %q", despNoKey)
 	}
 
 	// No domain -> placeholder, never a broken https:// link.

@@ -44,9 +44,9 @@
 
 | Name               | 例子                                | 说明                              |
 | ------------------ | ----------------------------------- | --------------------------------- |
-| URL                | https://jwgl.njtech.edu.cn/jwglxt   | 教务系统地址（建议带 `/jwglxt` 上下文路径）|
-| USERNAME           | 2023210333027                       | 学号                              |
-| PASSWORD           | Y3xhaCkb5PZ4                        | 密码                              |
+| URL                | https://jwgl.xxxx.edu.cn/jwglxt   | 教务系统地址（建议带 `/jwglxt` 上下文路径）|
+| USERNAME           | 202020209393                       | 学号                              |
+| PASSWORD           | aadasdd                        | 密码                              |
 | SERVERCHAN_SENDKEY | SCT386139Txxxxxxxxxxxxxxxxxxxxxxxxx | [Server酱 SendKey]，成绩更新通知。**必填**（替代原 Showdoc）|
 | GRADES_DOMAIN      | grades.example.com                  | 自托管成绩页的自定义域名。**与 `GRADES_KEY` 成对设置**（两者都填或都留空）；通知里的「查看完整卡片」链接指向 `https://<域名>/#<密钥>` |
 | GRADES_KEY         | `s3cr3t-9x2k`                        | 成绩页**端到端加密密钥**（AES-256-GCM 密钥，由它派生）。成对设置后，成绩卡片在仓库里是**密文**，浏览器用链接里的 `#<密钥>` 片段实时解密显示；片段不上服务器、不进仓库，公开仓库也泄露不了明文。链接即凭证，请勿外泄 |

@@ -1,38 +1,39 @@
 package push
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
-const showdocURL = "https://push.showdoc.com.cn/server/api/push"
+const serverChanBase = "https://sctapi.ftqq.com"
 
-// Showdoc sends a WeChat notification via Showdoc push.
-// token is the Showdoc push key; title and content are the notification fields.
-func Showdoc(token, title, content string) (string, error) {
-	// type=2 tells Showdoc to render content as HTML. The default (type=1,
-	// markdown) mangles our self-contained <html> document: the nested
-	// <head>/<style> is dropped by the browser when embedded, so the
-	// Liquid Glass dark background never applies and the card looks broken.
-	body := map[string]interface{}{
-		"title":   title,
-		"content": content,
-		"type":    2,
+// ServerChan sends a grade-update alert via Server酱 (ServerChan).
+// sendKey is the SCT... SendKey; title is the message title (≤32 chars),
+// desp is Markdown content (≤32KB), and short is the card preview (≤64 chars,
+// optional). The self-hosted glassmorphism page is the canonical view; this
+// call only carries a short summary + a deep link to it, because WeChat
+// templates/markdown cannot render the card itself.
+func ServerChan(sendKey, title, desp, short string) (string, error) {
+	form := url.Values{}
+	form.Set("title", title)
+	form.Set("desp", desp)
+	if short != "" {
+		form.Set("short", short)
 	}
-	b, _ := json.Marshal(body)
-	req, err := http.NewRequest("POST", showdocURL+"/"+token, bytes.NewReader(b))
+	body := strings.NewReader(form.Encode())
+	req, err := http.NewRequest("POST", serverChanBase+"/"+sendKey+".send", body)
 	if err != nil {
-		return "", fmt.Errorf("push: %w", err)
+		return "", fmt.Errorf("serverchan: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("push: %w", err)
+		return "", fmt.Errorf("serverchan: %w", err)
 	}
 	defer resp.Body.Close()
 	rb, _ := io.ReadAll(resp.Body)

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"zfcheckscores/internal/config"
+	"zfcheckscores/internal/push"
 	"zfcheckscores/internal/semester"
 	"zfcheckscores/internal/zfn"
 )
@@ -100,5 +102,45 @@ func TestClassifyGradeNil(t *testing.T) {
 	}
 	if !strings.Contains(suggestion, "重试") {
 		t.Errorf("nil grade result suggestion = %q, want 重试", suggestion)
+	}
+}
+
+// TestBuildNotify locks the Server酱 notification content: course count, GPA,
+// and the self-hosted deep link. The link must normalize the domain (strip
+// scheme / trailing slash) and fall back to a placeholder when GRADES_DOMAIN
+// is unset, so the notification never embeds a broken URL.
+func TestBuildNotify(t *testing.T) {
+	courses := []push.Course{{Course: "高等数学", Grade: "92"}, {Course: "大学英语", Grade: "85"}}
+
+	cfg := &config.Config{SiteDomain: "grades.example.com"}
+	title, desp, short := buildNotify(cfg, "2025-2026 学年第2学期", courses, "3.45", "88.20", false)
+	if title != "正方教务成绩更新" {
+		t.Errorf("title = %q, want 正方教务成绩更新", title)
+	}
+	if !strings.Contains(desp, "本学期 **2** 门已出成绩") {
+		t.Errorf("desp missing course count: %q", desp)
+	}
+	if !strings.Contains(desp, "https://grades.example.com/") {
+		t.Errorf("desp missing normalized domain link: %q", desp)
+	}
+	if short != "正方教务成绩更新 · 本学期2门 · GPA3.45" {
+		t.Errorf("short = %q", short)
+	}
+
+	// Domain given with scheme + trailing slash must still normalize.
+	cfg3 := &config.Config{SiteDomain: "https://grades.example.com/"}
+	_, desp3, _ := buildNotify(cfg3, "x", courses, "3.45", "88.20", false)
+	if !strings.Contains(desp3, "https://grades.example.com/") {
+		t.Errorf("desp3 missing normalized domain link: %q", desp3)
+	}
+
+	// No domain -> placeholder, never a broken https:// link.
+	cfg2 := &config.Config{}
+	_, desp2, _ := buildNotify(cfg2, "x", nil, "0.00", "0.00", true)
+	if strings.Contains(desp2, "https://") {
+		t.Errorf("desp should not contain link when domain empty: %q", desp2)
+	}
+	if !strings.Contains(desp2, "自托管成绩页部署中") {
+		t.Errorf("desp missing placeholder: %q", desp2)
 	}
 }

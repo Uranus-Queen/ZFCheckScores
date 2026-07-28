@@ -13,7 +13,8 @@ type Config struct {
 	Username      string
 	Password      string
 	Cookies       map[string]string
-	Token         string
+	ServerChanKey string // Server酱 SendKey（SCT...），用于成绩更新通知
+	SiteDomain    string // 自托管成绩页的自定义域名，如 grades.example.com（不含协议头）
 	ForcePush     bool
 	GitHubActions bool
 	TimeoutSec    int // HTTP timeout in seconds (default 30)
@@ -54,7 +55,8 @@ func Load() *Config {
 		Username:      os.Getenv("USERNAME"),
 		Password:      os.Getenv("PASSWORD"),
 		Cookies:       parseCookies(os.Getenv("COOKIES")),
-		Token:         os.Getenv("TOKEN"),
+		ServerChanKey: os.Getenv("SERVERCHAN_SENDKEY"),
+		SiteDomain:    os.Getenv("GRADES_DOMAIN"),
 		ForcePush:     forcePush,
 		GitHubActions: ga,
 		TimeoutSec:    timeoutSec,

@@ -151,13 +151,13 @@ func main() {
 	case firstRun:
 		logLines = append(logLines, firstRunMsg)
 		logLines = append(logLines, notify(cfg, title, desp, short))
-		if err := writeSite(siteDir, fullHTML); err != nil {
+		if err := writeSite(siteTargetDir(cfg), fullHTML); err != nil {
 			log.Printf("warn: write site: %v", err)
 		}
 	case gc != ogc || cfg.ForcePush:
 		logLines = append(logLines, "成绩已更新")
 		logLines = append(logLines, notify(cfg, title, desp, short))
-		if err := writeSite(siteDir, fullHTML); err != nil {
+		if err := writeSite(siteTargetDir(cfg), fullHTML); err != nil {
 			log.Printf("warn: write site: %v", err)
 		}
 	default:
@@ -205,9 +205,10 @@ func main() {
 }
 
 // notify sends the grade-update alert via Server酱. The self-hosted
-// glassmorphism page (dist/index.html) is the canonical view; Server酱 only
-// carries a short summary + a deep link to it, because WeChat templates /
-// markdown cannot render the card. Returns the API response for the run log.
+// glassmorphism page (dist/<GRADES_KEY>/index.html) is the canonical view;
+// Server酱 only carries a short summary + a deep link to it, because WeChat
+// templates / markdown cannot render the card. Returns the API response for
+// the run log.
 func notify(cfg *config.Config, title, desp, short string) string {
 	if cfg.ServerChanKey == "" {
 		return "skip: SERVERCHAN_SENDKEY 未配置"
@@ -220,8 +221,11 @@ func notify(cfg *config.Config, title, desp, short string) string {
 }
 
 // buildNotify composes the Server酱 title / markdown desp / card-preview short.
-// The link points to the self-hosted page; if GRADES_DOMAIN is unset, a
-// placeholder line is used instead so the notification still carries the summary.
+// The link points to the self-hosted page at an unguessable path
+// https://<domain>/<key>/ — so opening it needs no extra login step, and the
+// grades physically live only at that path (root stays a placeholder). If either
+// GRADES_DOMAIN or GRADES_KEY is unset, a placeholder line is used instead so
+// the notification never embeds a broken or publicly-rooted URL.
 func buildNotify(cfg *config.Config, semLabel string, courses []push.Course, gpa, pctGPA string, firstRun bool) (title, desp, short string) {
 	title = "正方教务成绩更新"
 	n := len(courses)
@@ -232,15 +236,37 @@ func buildNotify(cfg *config.Config, semLabel string, courses []push.Course, gpa
 	if firstRun {
 		b.WriteString("\n（首次运行，下方为本学期全部已出成绩）\n")
 	}
-	domain := strings.TrimSuffix(strings.TrimPrefix(strings.TrimPrefix(cfg.SiteDomain, "https://"), "http://"), "/")
-	if domain != "" {
-		b.WriteString(fmt.Sprintf("\n[点此查看完整成绩卡片](https://%s/)\n", domain))
-	} else {
+	domain := strings.TrimSpace(cfg.SiteDomain)
+	domain = strings.TrimPrefix(domain, "https://")
+	domain = strings.TrimPrefix(domain, "http://")
+	domain = strings.TrimSuffix(domain, "/")
+	key := strings.TrimSpace(cfg.SiteKey)
+	switch {
+	case domain != "" && key != "":
+		// 成绩页仅在 /<key>/ 路径下存在，点开即看，无需登录。
+		b.WriteString(fmt.Sprintf("\n[点此查看完整成绩卡片](https://%s/%s/)\n", domain, key))
+	case domain != "":
+		// 有域名但缺密钥：根路径是公开占位页，不附链接以免泄露成绩。
+		b.WriteString("\n（未设置 GRADES_KEY，成绩页为公开根路径，已不附链接；请在 Secrets 设置 GRADES_KEY）\n")
+	default:
 		b.WriteString("\n（自托管成绩页部署中，稍后于推送链接查看）\n")
 	}
 	desp = b.String()
 	short = fmt.Sprintf("正方教务成绩更新 · 本学期%d门 · GPA%s", n, gpa)
 	return
+}
+
+// siteTargetDir returns the directory where the self-hosted page is written.
+// When GRADES_KEY is set, the page lives under dist/<key>/ — an unguessable
+// path so the grades are NOT at the site root and need no login wall. When
+// GRADES_KEY is empty, it falls back to dist/ (root, publicly readable) with a
+// warning, so local runs still work without the secret.
+func siteTargetDir(cfg *config.Config) string {
+	if strings.TrimSpace(cfg.SiteKey) == "" {
+		log.Printf("warn: GRADES_KEY 未设置，成绩页将写到根路径 %s（公开可访问，建议设置 GRADES_KEY 改为 /<密钥>/ 路径）", siteDir)
+		return siteDir
+	}
+	return filepath.Join(siteDir, strings.TrimSpace(cfg.SiteKey))
 }
 
 // writeSite writes the self-contained glassmorphism HTML page into dir as
